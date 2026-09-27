@@ -1,0 +1,1267 @@
+{
+  "$comment": [
+    "Single source of truth for every package the Creative Stack installs.",
+    "Brewfile is GENERATED from this file (scripts/packages.py --emit brewfile);",
+    "edit here, never there.",
+    "",
+    "Per package:",
+    "  id        stable name used in logs and doctor output",
+    "  provides  binaries that must exist afterwards; how we verify success.",
+    "            Debian renames some (bat -> batcat), hence a list.",
+    "  brew      Homebrew formula, or null if unavailable",
+    "  cask      true when the brew entry is a cask (needs a GUI/sudo install)",
+    "  arch      pacman package in core/extra, or null",
+    "  aur       AUR package, tried when arch is null or pacman has no such name",
+    "  debian    apt package, or null",
+    "  fallback  language-ecosystem install used when no native package exists:",
+    "            npm | uv | cargo | go | source | manual",
+    "  gui       true = a desktop app; skipped under --profile headless",
+    "  optional  true = a failure is a warning, not an error",
+    "",
+    "Arch moves packages between extra and the AUR over time. scripts/packages.py",
+    "treats every name as a hint: repo -> AUR -> fallback, and reports what it",
+    "actually used. A stale name degrades to a warning, never a failed bootstrap."
+  ],
+  "groups": [
+    {
+      "name": "base",
+      "note": "Toolchains the rest of the manifest is installed with.",
+      "packages": [
+        {
+          "id": "git",
+          "provides": [
+            "git"
+          ],
+          "brew": "git",
+          "arch": "git",
+          "debian": "git"
+        },
+        {
+          "id": "curl",
+          "provides": [
+            "curl"
+          ],
+          "brew": "curl",
+          "arch": "curl",
+          "debian": "curl"
+        },
+        {
+          "id": "unzip",
+          "provides": [
+            "unzip"
+          ],
+          "brew": "unzip",
+          "arch": "unzip",
+          "debian": "unzip"
+        },
+        {
+          "id": "cmake",
+          "provides": [
+            "cmake"
+          ],
+          "brew": "cmake",
+          "arch": "cmake",
+          "debian": "cmake",
+          "note": "whisper.cpp source build on Debian"
+        },
+        {
+          "id": "build-tools",
+          "provides": [
+            "cc"
+          ],
+          "brew": null,
+          "arch": "base-devel",
+          "debian": "build-essential",
+          "note": "compilers for source fallbacks"
+        },
+        {
+          "id": "pkg-config",
+          "provides": [
+            "pkg-config"
+          ],
+          "brew": "pkg-config",
+          "arch": "pkgconf",
+          "debian": "pkg-config"
+        },
+        {
+          "id": "node",
+          "provides": [
+            "node",
+            "npm"
+          ],
+          "brew": "node",
+          "arch": "nodejs npm",
+          "debian": "nodejs npm"
+        },
+        {
+          "id": "python",
+          "provides": [
+            "python3"
+          ],
+          "brew": "python@3.13",
+          "arch": "python",
+          "debian": "python3 python3-venv python3-pip"
+        },
+        {
+          "id": "libsecret",
+          "linux_only": true,
+          "provides": [
+            "secret-tool"
+          ],
+          "brew": null,
+          "arch": "libsecret",
+          "debian": "libsecret-tools",
+          "optional": true,
+          "note": "Linux secret store; macOS uses Keychain"
+        },
+        {
+          "id": "fontconfig",
+          "provides": [
+            "fc-match",
+            "fc-cache"
+          ],
+          "brew": "fontconfig",
+          "arch": "fontconfig",
+          "debian": "fontconfig",
+          "note": "/vidkit checks caption fonts with fc-match"
+        },
+        {
+          "id": "rust",
+          "linux_only": true,
+          "provides": [
+            "cargo"
+          ],
+          "brew": null,
+          "arch": "rust",
+          "debian": null,
+          "check": "cargo --version 2>/dev/null | awk 'NR==1{split($2,v,\".\"); ok=(v[1]>1 || v[2]>=82)} END{exit !ok}'",
+          "fallback": {
+            "kind": "source",
+            "name": "rustup"
+          },
+          "note": "gifski/oxipng/typst/silicon are cargo-installed on Linux. Arch's rust keeps pace; Ubuntu 24.04 apt ships 1.75, too old to build them, so Debian gets rustup instead of rustc/cargo."
+        },
+        {
+          "id": "go",
+          "linux_only": true,
+          "provides": [
+            "go"
+          ],
+          "brew": null,
+          "arch": "go",
+          "debian": "golang-go",
+          "optional": true,
+          "note": "d2, vhs, freeze and termshot fall back to `go install`"
+        },
+        {
+          "id": "cargo-build-deps",
+          "linux_only": true,
+          "best_effort": true,
+          "provides": [],
+          "brew": null,
+          "arch": null,
+          "debian": "libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype-dev libharfbuzz-dev libexpat1-dev",
+          "optional": true,
+          "note": "headers the cargo fallbacks (silicon, resvg, typst) need on Debian. Arch covers these through base-devel and the graphics stack."
+        },
+        {
+          "id": "xvfb",
+          "linux_only": true,
+          "provides": [
+            "xvfb-run"
+          ],
+          "brew": null,
+          "arch": "xorg-server-xvfb",
+          "debian": "xvfb",
+          "optional": true,
+          "note": "virtual display so GUI apps run on a headless box"
+        }
+      ]
+    },
+    {
+      "name": "raster",
+      "packages": [
+        {
+          "id": "imagemagick",
+          "provides": [
+            "magick",
+            "convert"
+          ],
+          "brew": "imagemagick",
+          "arch": "imagemagick",
+          "debian": "imagemagick",
+          "note": "swiss-army raster. Ubuntu 24.04 still ships ImageMagick 6, whose binary is `convert`, not `magick` \u2014 hostenv.magick_cmd() papers over the difference."
+        },
+        {
+          "id": "vips",
+          "provides": [
+            "vips"
+          ],
+          "brew": "vips",
+          "arch": "libvips",
+          "debian": "libvips-tools",
+          "note": "fast large-image pipeline"
+        },
+        {
+          "id": "libheif",
+          "provides": [
+            "heif-convert"
+          ],
+          "brew": "libheif",
+          "arch": "libheif",
+          "debian": "libheif-examples",
+          "optional": true,
+          "note": "HEIC/AVIF decode (iPhone screenshots)"
+        },
+        {
+          "id": "exiftool",
+          "provides": [
+            "exiftool"
+          ],
+          "brew": "exiftool",
+          "arch": "perl-image-exiftool",
+          "debian": "libimage-exiftool-perl",
+          "note": "metadata read/strip before publishing"
+        },
+        {
+          "id": "gifski",
+          "provides": [
+            "gifski"
+          ],
+          "brew": "gifski",
+          "arch": "gifski",
+          "aur": "gifski",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "gifski"
+          },
+          "optional": true,
+          "note": "high-quality GIF encoder"
+        },
+        {
+          "id": "oxipng",
+          "provides": [
+            "oxipng"
+          ],
+          "brew": "oxipng",
+          "arch": "oxipng",
+          "aur": "oxipng",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "oxipng"
+          },
+          "note": "lossless PNG recompression"
+        },
+        {
+          "id": "pngquant",
+          "provides": [
+            "pngquant"
+          ],
+          "brew": "pngquant",
+          "arch": "pngquant",
+          "debian": "pngquant",
+          "note": "lossy PNG quantization"
+        },
+        {
+          "id": "webp",
+          "provides": [
+            "cwebp",
+            "dwebp"
+          ],
+          "brew": "webp",
+          "arch": "libwebp libwebp-utils",
+          "debian": "webp",
+          "note": "Arch splits the cwebp/dwebp binaries out of the library into libwebp-utils"
+        }
+      ]
+    },
+    {
+      "name": "vector",
+      "packages": [
+        {
+          "id": "librsvg",
+          "provides": [
+            "rsvg-convert"
+          ],
+          "brew": "librsvg",
+          "arch": "librsvg",
+          "debian": "librsvg2-bin",
+          "note": "SVG -> PNG/PDF"
+        },
+        {
+          "id": "resvg",
+          "provides": [
+            "resvg"
+          ],
+          "brew": "resvg",
+          "arch": "resvg",
+          "aur": "resvg",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "resvg"
+          },
+          "optional": true,
+          "note": "strict SVG renderer, second opinion vs rsvg"
+        },
+        {
+          "id": "potrace",
+          "provides": [
+            "potrace"
+          ],
+          "brew": "potrace",
+          "arch": "potrace",
+          "debian": "potrace",
+          "note": "raster -> vector tracing"
+        },
+        {
+          "id": "svgo",
+          "provides": [
+            "svgo"
+          ],
+          "brew": "svgo",
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "svgo"
+          },
+          "note": "SVG minifier"
+        },
+        {
+          "id": "fontforge",
+          "provides": [
+            "fontforge"
+          ],
+          "brew": "fontforge",
+          "arch": "fontforge",
+          "debian": "fontforge",
+          "optional": true,
+          "note": "font inspection / subsetting"
+        }
+      ]
+    },
+    {
+      "name": "diagrams",
+      "packages": [
+        {
+          "id": "graphviz",
+          "provides": [
+            "dot"
+          ],
+          "brew": "graphviz",
+          "arch": "graphviz",
+          "debian": "graphviz"
+        },
+        {
+          "id": "d2",
+          "provides": [
+            "d2"
+          ],
+          "brew": "d2",
+          "arch": "d2",
+          "aur": "d2",
+          "debian": null,
+          "fallback": {
+            "kind": "go",
+            "name": "oss.terrastruct.com/d2@latest"
+          },
+          "note": "declarative diagrams, good defaults"
+        },
+        {
+          "id": "plantuml",
+          "provides": [
+            "plantuml"
+          ],
+          "brew": "plantuml",
+          "arch": "plantuml",
+          "aur": "plantuml",
+          "debian": "plantuml",
+          "optional": true
+        },
+        {
+          "id": "mermaid-cli",
+          "provides": [
+            "mmdc"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@mermaid-js/mermaid-cli"
+          }
+        }
+      ]
+    },
+    {
+      "name": "documents",
+      "packages": [
+        {
+          "id": "pandoc",
+          "provides": [
+            "pandoc"
+          ],
+          "brew": "pandoc",
+          "arch": "pandoc-cli",
+          "aur": "pandoc-bin",
+          "debian": "pandoc"
+        },
+        {
+          "id": "ghostscript",
+          "provides": [
+            "gs"
+          ],
+          "brew": "ghostscript",
+          "arch": "ghostscript",
+          "debian": "ghostscript"
+        },
+        {
+          "id": "poppler",
+          "provides": [
+            "pdftoppm",
+            "pdftotext"
+          ],
+          "brew": "poppler",
+          "arch": "poppler",
+          "debian": "poppler-utils"
+        },
+        {
+          "id": "qpdf",
+          "provides": [
+            "qpdf"
+          ],
+          "brew": "qpdf",
+          "arch": "qpdf",
+          "debian": "qpdf"
+        },
+        {
+          "id": "mupdf-tools",
+          "provides": [
+            "mutool"
+          ],
+          "brew": "mupdf-tools",
+          "arch": "mupdf-tools",
+          "debian": "mupdf-tools",
+          "optional": true
+        },
+        {
+          "id": "typst",
+          "provides": [
+            "typst"
+          ],
+          "brew": "typst",
+          "arch": "typst",
+          "aur": "typst",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "typst-cli"
+          },
+          "note": "modern LaTeX alternative, fast + scriptable"
+        },
+        {
+          "id": "tectonic",
+          "provides": [
+            "tectonic"
+          ],
+          "brew": "tectonic",
+          "arch": "tectonic",
+          "aur": "tectonic",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "tectonic"
+          },
+          "optional": true,
+          "note": "self-contained LaTeX engine"
+        },
+        {
+          "id": "latex",
+          "provides": [
+            "latex"
+          ],
+          "brew": "mactex-no-gui",
+          "cask": true,
+          "arch": "texlive-basic texlive-latexextra texlive-fontsrecommended",
+          "debian": "texlive-latex-extra texlive-fonts-recommended",
+          "optional": true,
+          "heavy": true,
+          "note": "only needed for manim Tex()/MathTex(). ~2-5GB."
+        }
+      ]
+    },
+    {
+      "name": "slides",
+      "packages": [
+        {
+          "id": "marp-cli",
+          "provides": [
+            "marp"
+          ],
+          "brew": "marp-cli",
+          "arch": null,
+          "aur": "marp-cli",
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@marp-team/marp-cli"
+          },
+          "note": "markdown -> deck (PPTX/PDF/HTML)"
+        },
+        {
+          "id": "libreoffice",
+          "provides": [
+            "soffice"
+          ],
+          "mac_app": "LibreOffice.app",
+          "brew": "libreoffice",
+          "cask": true,
+          "arch": "libreoffice-still",
+          "debian": "libreoffice-impress",
+          "gui": true,
+          "optional": true,
+          "note": "marp --pptx-editable converts through soffice; without it PPTX export is one image per slide"
+        },
+        {
+          "id": "presenterm",
+          "provides": [
+            "presenterm"
+          ],
+          "brew": "presenterm",
+          "arch": "presenterm",
+          "aur": "presenterm",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "presenterm"
+          },
+          "optional": true,
+          "note": "terminal-native presentations"
+        },
+        {
+          "id": "chromium",
+          "linux_only": true,
+          "provides": [
+            "chromium",
+            "chromium-browser",
+            "google-chrome-stable"
+          ],
+          "brew": null,
+          "arch": "chromium",
+          "debian": "chromium-browser",
+          "gui": true,
+          "optional": true,
+          "note": "marp needs a Chrome for PDF/PPTX/PNG. macOS falls back to Playwright's."
+        }
+      ]
+    },
+    {
+      "name": "video",
+      "packages": [
+        {
+          "id": "ffmpeg",
+          "provides": [
+            "ffmpeg",
+            "ffprobe"
+          ],
+          "brew": "ffmpeg",
+          "arch": "ffmpeg",
+          "debian": "ffmpeg"
+        },
+        {
+          "id": "ffmpeg-full",
+          "provides": [],
+          "brew": "ffmpeg-full",
+          "arch": null,
+          "debian": null,
+          "macos_only": true,
+          "note": "Homebrew's ffmpeg has no libass/freetype/fontconfig, so ass, subtitles and drawtext are missing. ffmpeg-full has them and is keg-only, so it does not shadow the stock binary. Linux distro ffmpeg already includes them."
+        },
+        {
+          "id": "handbrake",
+          "provides": [
+            "HandBrakeCLI"
+          ],
+          "brew": "handbrake",
+          "arch": "handbrake-cli",
+          "aur": "handbrake-cli",
+          "debian": "handbrake-cli",
+          "optional": true,
+          "note": "encode ladders / device presets"
+        },
+        {
+          "id": "mkvtoolnix",
+          "provides": [
+            "mkvmerge"
+          ],
+          "brew": "mkvtoolnix",
+          "arch": "mkvtoolnix-cli",
+          "debian": "mkvtoolnix",
+          "note": "chapter + track surgery without re-encode"
+        },
+        {
+          "id": "yt-dlp",
+          "provides": [
+            "yt-dlp"
+          ],
+          "brew": "yt-dlp",
+          "arch": "yt-dlp",
+          "debian": "yt-dlp",
+          "fallback": {
+            "kind": "uv",
+            "name": "yt-dlp"
+          },
+          "note": "pull reference footage"
+        },
+        {
+          "id": "auto-editor",
+          "provides": [
+            "auto-editor"
+          ],
+          "brew": "auto-editor",
+          "arch": null,
+          "aur": "auto-editor",
+          "debian": null,
+          "fallback": {
+            "kind": "uv",
+            "name": "auto-editor"
+          },
+          "note": "silence / jump-cut detection"
+        }
+      ]
+    },
+    {
+      "name": "capture",
+      "packages": [
+        {
+          "id": "vhs",
+          "provides": [
+            "vhs"
+          ],
+          "brew": "vhs",
+          "arch": "vhs",
+          "aur": "vhs",
+          "debian": null,
+          "fallback": {
+            "kind": "go",
+            "name": "github.com/charmbracelet/vhs@latest"
+          },
+          "note": "scripted terminal recordings (.tape -> GIF/MP4)"
+        },
+        {
+          "id": "ttyd",
+          "provides": [
+            "ttyd"
+          ],
+          "brew": "ttyd",
+          "arch": "ttyd",
+          "aur": "ttyd",
+          "debian": "ttyd",
+          "optional": true,
+          "note": "vhs needs ttyd to drive a terminal"
+        },
+        {
+          "id": "asciinema",
+          "provides": [
+            "asciinema"
+          ],
+          "brew": "asciinema",
+          "arch": "asciinema",
+          "debian": "asciinema",
+          "fallback": {
+            "kind": "uv",
+            "name": "asciinema"
+          }
+        },
+        {
+          "id": "agg",
+          "provides": [
+            "agg"
+          ],
+          "brew": "agg",
+          "arch": null,
+          "aur": "asciinema-agg",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "agg"
+          },
+          "optional": true,
+          "note": "asciinema cast -> GIF"
+        },
+        {
+          "id": "silicon",
+          "provides": [
+            "silicon"
+          ],
+          "brew": "silicon",
+          "arch": null,
+          "aur": "silicon",
+          "debian": null,
+          "fallback": {
+            "kind": "cargo",
+            "name": "silicon"
+          },
+          "optional": true,
+          "note": "code -> PNG"
+        },
+        {
+          "id": "termshot",
+          "provides": [
+            "termshot"
+          ],
+          "brew": "termshot",
+          "arch": null,
+          "aur": "termshot",
+          "debian": null,
+          "fallback": {
+            "kind": "go",
+            "name": "github.com/homeport/termshot/cmd/termshot@latest"
+          },
+          "optional": true
+        },
+        {
+          "id": "freeze",
+          "provides": [
+            "freeze"
+          ],
+          "brew": "charmbracelet/tap/freeze",
+          "arch": null,
+          "aur": "charm-freeze",
+          "debian": null,
+          "fallback": {
+            "kind": "go",
+            "name": "github.com/charmbracelet/freeze@latest"
+          },
+          "note": "code/terminal -> SVG or PNG"
+        },
+        {
+          "id": "keystroke-display",
+          "mac_app": "KeyCastr.app",
+          "provides": [
+            "screenkey"
+          ],
+          "brew": "keycastr",
+          "cask": true,
+          "arch": "screenkey",
+          "aur": "screenkey",
+          "debian": "screenkey",
+          "gui": true,
+          "optional": true,
+          "note": "on-screen keystrokes for tutorials"
+        },
+        {
+          "id": "grim",
+          "linux_only": true,
+          "provides": [
+            "grim"
+          ],
+          "brew": null,
+          "arch": "grim",
+          "debian": "grim",
+          "gui": true,
+          "optional": true,
+          "note": "Wayland screenshot (Omarchy/Hyprland); /shot uses it for live capture"
+        },
+        {
+          "id": "slurp",
+          "linux_only": true,
+          "provides": [
+            "slurp"
+          ],
+          "brew": null,
+          "arch": "slurp",
+          "debian": "slurp",
+          "gui": true,
+          "optional": true,
+          "note": "Wayland region select, pairs with grim"
+        },
+        {
+          "id": "maim",
+          "linux_only": true,
+          "provides": [
+            "maim"
+          ],
+          "brew": null,
+          "arch": "maim",
+          "debian": "maim",
+          "gui": true,
+          "optional": true,
+          "note": "X11 screenshot fallback"
+        }
+      ]
+    },
+    {
+      "name": "audio",
+      "packages": [
+        {
+          "id": "sox",
+          "provides": [
+            "sox"
+          ],
+          "brew": "sox",
+          "arch": "sox",
+          "debian": "sox"
+        },
+        {
+          "id": "rubberband",
+          "provides": [
+            "rubberband"
+          ],
+          "brew": "rubberband",
+          "arch": "rubberband",
+          "debian": "rubberband-cli",
+          "note": "time-stretch / pitch-shift preserving formants"
+        },
+        {
+          "id": "lame",
+          "provides": [
+            "lame"
+          ],
+          "brew": "lame",
+          "arch": "lame",
+          "debian": "lame"
+        },
+        {
+          "id": "flac",
+          "provides": [
+            "flac"
+          ],
+          "brew": "flac",
+          "arch": "flac",
+          "debian": "flac"
+        },
+        {
+          "id": "libsndfile",
+          "provides": [
+            "sndfile-info"
+          ],
+          "brew": "libsndfile",
+          "arch": "libsndfile",
+          "debian": "sndfile-programs",
+          "optional": true
+        },
+        {
+          "id": "portaudio",
+          "provides": [],
+          "brew": "portaudio",
+          "arch": "portaudio",
+          "debian": "portaudio19-dev",
+          "note": "needed to build python-rtmidi / sounddevice"
+        },
+        {
+          "id": "fluidsynth",
+          "provides": [
+            "fluidsynth"
+          ],
+          "brew": "fluid-synth",
+          "arch": "fluidsynth",
+          "debian": "fluidsynth",
+          "note": "MIDI -> audio via SoundFont"
+        },
+        {
+          "id": "lilypond",
+          "provides": [
+            "lilypond"
+          ],
+          "brew": "lilypond",
+          "arch": "lilypond",
+          "debian": "lilypond",
+          "optional": true,
+          "note": "score engraving"
+        },
+        {
+          "id": "csound",
+          "provides": [
+            "csound"
+          ],
+          "brew": "csound",
+          "arch": "csound",
+          "debian": "csound",
+          "optional": true,
+          "note": "programmatic synthesis"
+        },
+        {
+          "id": "jack",
+          "linux_only": true,
+          "provides": [],
+          "brew": null,
+          "arch": "pipewire-jack",
+          "debian": "libjack-jackd2-dev",
+          "optional": true,
+          "note": "Reaper/SuperCollider audio backend on Linux"
+        }
+      ]
+    },
+    {
+      "name": "speech-vision",
+      "packages": [
+        {
+          "id": "whisper-cpp",
+          "provides": [
+            "whisper-cli"
+          ],
+          "brew": "whisper.cpp",
+          "arch": null,
+          "aur": "whisper.cpp",
+          "debian": null,
+          "fallback": {
+            "kind": "source",
+            "name": "whisper-cpp"
+          },
+          "note": "local transcription; Metal on macOS, CPU/CUDA on Linux"
+        },
+        {
+          "id": "tesseract",
+          "provides": [
+            "tesseract"
+          ],
+          "brew": "tesseract",
+          "arch": "tesseract tesseract-data-eng",
+          "debian": "tesseract-ocr",
+          "note": "OCR for screenshot text extraction"
+        }
+      ]
+    },
+    {
+      "name": "animation",
+      "packages": [
+        {
+          "id": "manim",
+          "provides": [
+            "manim"
+          ],
+          "brew": "manim",
+          "arch": null,
+          "aur": "python-manim",
+          "debian": null,
+          "fallback": {
+            "kind": "uv",
+            "name": "manim"
+          },
+          "optional": true,
+          "note": "programmatic explanatory animation"
+        }
+      ]
+    },
+    {
+      "name": "utils",
+      "packages": [
+        {
+          "id": "jq",
+          "provides": [
+            "jq"
+          ],
+          "brew": "jq",
+          "arch": "jq",
+          "debian": "jq"
+        },
+        {
+          "id": "gh",
+          "provides": [
+            "gh"
+          ],
+          "brew": "gh",
+          "arch": "github-cli",
+          "debian": "gh",
+          "optional": true
+        },
+        {
+          "id": "bat",
+          "provides": [
+            "bat",
+            "batcat"
+          ],
+          "brew": "bat",
+          "arch": "bat",
+          "debian": "bat",
+          "optional": true,
+          "note": "Debian installs the binary as batcat, hence two provides"
+        },
+        {
+          "id": "chafa",
+          "provides": [
+            "chafa"
+          ],
+          "brew": "chafa",
+          "arch": "chafa",
+          "debian": "chafa",
+          "optional": true,
+          "note": "terminal image preview \u2014 verify renders over SSH"
+        }
+      ]
+    },
+    {
+      "name": "apps",
+      "note": "Desktop creative apps. On macOS these are casks and mostly already installed (bootstrap adopts them); on Linux they are ordinary packages, which is why a Linux box bootstraps cleanly from scratch.",
+      "packages": [
+        {
+          "id": "blender",
+          "mac_app": "Blender.app",
+          "provides": [
+            "blender"
+          ],
+          "brew": "blender",
+          "cask": true,
+          "arch": "blender",
+          "debian": "blender",
+          "gui": true,
+          "heavy": true
+        },
+        {
+          "id": "inkscape",
+          "mac_app": "Inkscape.app",
+          "provides": [
+            "inkscape"
+          ],
+          "brew": "inkscape",
+          "cask": true,
+          "arch": "inkscape",
+          "debian": "inkscape",
+          "gui": true
+        },
+        {
+          "id": "gimp",
+          "mac_app": "GIMP.app",
+          "provides": [
+            "gimp"
+          ],
+          "brew": "gimp",
+          "cask": true,
+          "arch": "gimp",
+          "debian": "gimp",
+          "gui": true
+        },
+        {
+          "id": "obs",
+          "mac_app": "OBS.app",
+          "provides": [
+            "obs"
+          ],
+          "brew": "obs",
+          "cask": true,
+          "arch": "obs-studio",
+          "debian": "obs-studio",
+          "gui": true,
+          "optional": true
+        },
+        {
+          "id": "audacity",
+          "mac_app": "Audacity.app",
+          "provides": [
+            "audacity"
+          ],
+          "brew": "audacity",
+          "cask": true,
+          "arch": "audacity",
+          "debian": "audacity",
+          "gui": true,
+          "optional": true
+        },
+        {
+          "id": "reaper",
+          "mac_app": "REAPER.app",
+          "provides": [
+            "reaper"
+          ],
+          "brew": "reaper",
+          "cask": true,
+          "arch": null,
+          "aur": "reaper",
+          "debian": null,
+          "fallback": {
+            "kind": "manual",
+            "name": "https://www.reaper.fm/download.php"
+          },
+          "gui": true,
+          "optional": true,
+          "note": "DAW with ReaScript \u2014 most agent-scriptable"
+        },
+        {
+          "id": "supercollider",
+          "mac_app": "SuperCollider.app",
+          "provides": [
+            "sclang"
+          ],
+          "brew": "supercollider",
+          "cask": true,
+          "arch": "supercollider",
+          "debian": "supercollider",
+          "gui": true,
+          "optional": true
+        },
+        {
+          "id": "sonic-pi",
+          "mac_app": "Sonic Pi.app",
+          "provides": [
+            "sonic-pi"
+          ],
+          "brew": "sonic-pi",
+          "cask": true,
+          "arch": null,
+          "aur": "sonic-pi",
+          "debian": "sonic-pi",
+          "gui": true,
+          "optional": true
+        },
+        {
+          "id": "resolve",
+          "mac_app": "DaVinci Resolve",
+          "provides": [
+            "resolve"
+          ],
+          "brew": null,
+          "arch": null,
+          "aur": "davinci-resolve",
+          "debian": null,
+          "fallback": {
+            "kind": "manual",
+            "name": "https://www.blackmagicdesign.com/products/davinciresolve"
+          },
+          "gui": true,
+          "optional": true,
+          "heavy": true,
+          "note": "no Homebrew cask \u2014 Blackmagic gates downloads behind a form. The Linux build is Studio-only, so external scripting works there."
+        }
+      ]
+    },
+    {
+      "name": "fonts",
+      "packages": [
+        {
+          "id": "font-roboto",
+          "provides": [],
+          "font": "Roboto",
+          "brew": "font-roboto",
+          "cask": true,
+          "arch": "ttf-roboto",
+          "debian": "fonts-roboto"
+        },
+        {
+          "id": "font-roboto-mono",
+          "provides": [],
+          "font": "Roboto Mono",
+          "brew": "font-roboto-mono",
+          "cask": true,
+          "arch": "ttf-roboto-mono",
+          "debian": "fonts-roboto",
+          "optional": true
+        },
+        {
+          "id": "font-inter",
+          "provides": [],
+          "font": "Inter",
+          "brew": "font-inter",
+          "cask": true,
+          "arch": "inter-font",
+          "debian": "fonts-inter",
+          "optional": true
+        },
+        {
+          "id": "font-jetbrains-mono",
+          "provides": [],
+          "font": "JetBrains Mono",
+          "brew": "font-jetbrains-mono",
+          "cask": true,
+          "arch": "ttf-jetbrains-mono",
+          "debian": "fonts-jetbrains-mono",
+          "optional": true
+        },
+        {
+          "id": "font-google-sans-code",
+          "provides": [],
+          "font": "Google Sans Code",
+          "brew": "font-google-sans-code",
+          "cask": true,
+          "arch": null,
+          "aur": "ttf-google-sans-code",
+          "debian": null,
+          "fallback": {
+            "kind": "font-release",
+            "name": "googlefonts/googlesans-code"
+          },
+          "optional": true
+        },
+        {
+          "id": "font-noto",
+          "provides": [],
+          "font": "Noto Sans",
+          "brew": null,
+          "arch": "noto-fonts",
+          "debian": "fonts-noto",
+          "optional": true,
+          "note": "Linux boxes often ship with no usable UI font at all"
+        }
+      ]
+    },
+    {
+      "name": "agents",
+      "note": "Agent harnesses. The stack is harness-agnostic (config/harnesses.json), so a clean machine gets the runtimes that consume the skills, not just the tools the skills drive. All optional: a missing agent CLI degrades the install, it does not fail it.",
+      "packages": [
+        {
+          "id": "claude-code",
+          "provides": [
+            "claude"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@anthropic-ai/claude-code"
+          },
+          "optional": true,
+          "note": "Claude Code CLI \u2014 reads ~/.claude/skills."
+        },
+        {
+          "id": "codex",
+          "provides": [
+            "codex"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@openai/codex"
+          },
+          "optional": true,
+          "note": "OpenAI Codex CLI \u2014 reads ~/.agents/skills."
+        },
+        {
+          "id": "gemini-cli",
+          "provides": [
+            "gemini"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@google/gemini-cli"
+          },
+          "optional": true,
+          "note": "Gemini CLI \u2014 reads ~/.gemini/skills."
+        },
+        {
+          "id": "opencode",
+          "provides": [
+            "opencode"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "opencode-ai"
+          },
+          "optional": true,
+          "note": "opencode \u2014 reads ~/.claude/skills and ~/.agents/skills."
+        }
+      ]
+    }
+  ]
+}

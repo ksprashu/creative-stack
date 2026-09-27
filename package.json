@@ -1,0 +1,20 @@
+{
+  "name": "creative-stack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node CLIs used by the creative-stack skills. Installed globally by scripts/bootstrap.sh; this file records the versions so a rebuild is reproducible.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "comment": "These are installed with `npm install --global`, not into node_modules — the skills shell out to marp, mmdc and svgo by name. `npm run cli:install` reproduces exactly what bootstrap does.",
+  "scripts": {
+    "cli:install": "npm install --global @marp-team/marp-cli@^4.1.2 @mermaid-js/mermaid-cli@^11.4.2 svgo@^3.3.2",
+    "cli:versions": "marp --version && mmdc --version && svgo --version"
+  },
+  "devDependencies": {
+    "@marp-team/marp-cli": "^4.1.2",
+    "@mermaid-js/mermaid-cli": "^11.4.2",
+    "svgo": "^3.3.2"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "uvx",
+      "args": [
+        "mcp-for-blender==2.0.0"
+      ]
+    },
+    "gimp": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${HOME}/.local/share/creative-stack/mcp/gimp",
+        "gimp_mcp_server.py"
+      ]
+    }
+  }
+}

@@ -1,0 +1,49 @@
+# --- generated output -------------------------------------------------------
+# Per-harness MCP configs carry absolute paths, because only Claude Code's
+# .mcp.json is documented to expand ${HOME}. scripts/install_mcp.py rebuilds
+# these on every machine, so the script is what gets committed, not its output.
+.gemini/settings.json
+.cursor/mcp.json
+opencode.json
+out/
+templates/deck/.generated/
+assets/soundfonts/
+creative-stack.env
+
+# --- secrets: these must never be committed ---------------------------------
+# Real keys live in the OS secret store (macOS Keychain / libsecret), never in
+# the repo. tokens.local.json is the personal brand override; it can contain
+# internal URLs and unreleased product names.
+brand/tokens.local.json
+*.local.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# --- toolchain --------------------------------------------------------------
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+
+# --- media scratch ----------------------------------------------------------
+# Raw captures are large and belong in the recording drive, not in git.
+*.mov
+*.mp4
+*.mkv
+*.wav
+*.aiff
+*.blend1
+# The studio rig is generated on first use by /render3d — a .blend is an opaque
+# binary that cannot be reviewed in a diff, so it is built, not committed.
+templates/blender/studio.blend
+!fixtures/**
+
+# --- os ---------------------------------------------------------------------
+.DS_Store
+Thumbs.db

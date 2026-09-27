@@ -1,0 +1,38 @@
+# Creative Stack — Python dependencies (installed into .venv by scripts/bootstrap.sh)
+
+# --- AI generation -----------------------------------------------------------
+google-genai>=1.0.0          # Gemini / Imagen / Veo / Lyria, Vertex + AI Studio
+google-cloud-aiplatform>=1.70 # Vertex ADC auth path
+
+# --- imaging -----------------------------------------------------------------
+Pillow>=11.0
+rembg[cli]>=2.0              # background removal (ONNX, runs local)
+numpy>=1.26
+
+# --- video / timeline --------------------------------------------------------
+OpenTimelineIO>=0.17         # FCPXML / EDL emit for DaVinci Resolve finishing
+opentimelineio-plugins>=0.17 # FCPXML adapter lives here
+
+# --- audio -------------------------------------------------------------------
+pydub>=0.25
+soundfile>=0.12
+pyloudnorm>=0.1.1            # EBU R128 / -14 LUFS measurement
+librosa>=0.10                # beat + onset detection for music-synced cuts
+
+# --- music -------------------------------------------------------------------
+music21>=9.1                 # score / harmony model
+mido>=1.3                    # MIDI file I/O
+# NOTE: python-rtmidi is deliberately omitted. Its macOS build fails
+# (RtMidi.cpp calls sem_timedwait, which macOS does not provide) and we never
+# need live MIDI out — /sound writes .mid files and renders them via fluidsynth.
+
+# --- documents ---------------------------------------------------------------
+python-pptx>=1.0
+pypdf>=5.0
+
+# --- capture -----------------------------------------------------------------
+playwright>=1.48             # deterministic web + HTML-template rendering
+
+# --- tooling -----------------------------------------------------------------
+PyYAML>=6.0                  # annotation specs for /shot
+rich>=13.0                   # doctor.py output tables

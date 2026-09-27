@@ -1,0 +1,142 @@
+<!doctype html>
+<!--
+ Copyright 2026 Creative Stack Contributors
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Screenshot frame template. Rendered headlessly by
+ skills/shot/scripts/frame.py via Playwright.
+
+ Everything configurable arrives as CSS custom properties injected by the
+ renderer from brand/tokens.json, so this file holds layout only — never a
+ hardcoded brand colour.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* --- injected by frame.py ------------------------------------------- */
+  :root {
+    --backdrop: linear-gradient(160deg, #E8F0FE 0%, #F8F9FA 100%);
+    --pad: 96px;
+    --radius: 12px;
+    --shadow: 0 24px 70px rgba(0, 0, 0, .35);
+    --chrome-bg: #E8EAED;
+    --chrome-border: #DADCE0;
+    --chrome-text: #5F6368;
+    --font-body: Roboto, Inter, -apple-system, sans-serif;
+    --caption-color: #5F6368;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    font-family: var(--font-body);
+    /* Size to content so #stage is never clipped by the viewport. */
+    width: max-content;
+  }
+
+  /* The backdrop and padding MUST live on #stage, not body: frame.py
+     screenshots #stage, so anything painted on body is cropped away. */
+  #stage {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    align-items: center;
+    background: var(--backdrop);
+    padding: var(--pad);
+    width: max-content;
+  }
+
+  .window {
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    background: #fff;
+    /* Hairline keeps light screenshots from bleeding into light backdrops. */
+    outline: 1px solid rgba(0, 0, 0, .06);
+    outline-offset: -1px;
+  }
+
+  /* --- macOS traffic-light title bar ----------------------------------- */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 14px;
+    background: var(--chrome-bg);
+    border-bottom: 1px solid var(--chrome-border);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .dot.r { background: #FF5F57; }
+  .dot.y { background: #FEBC2E; }
+  .dot.g { background: #28C840; }
+
+  .title {
+    flex: 1;
+    text-align: center;
+    font-size: 13px;
+    color: var(--chrome-text);
+    /* Offset the traffic lights so the title is optically centred. */
+    margin-right: 52px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* --- browser URL bar -------------------------------------------------- */
+  .urlbar {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 14px 8px;
+    background: var(--chrome-bg);
+  }
+  .url {
+    flex: 1;
+    height: 28px;
+    line-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--chrome-border);
+    font-size: 12px;
+    color: var(--chrome-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  img { display: block; max-width: none; }
+
+  figcaption {
+    font-size: 15px;
+    color: var(--caption-color);
+    text-align: center;
+    max-width: 90%;
+  }
+
+  /* --- bare: no chrome, just radius + shadow ---------------------------- */
+  .bare .titlebar, .bare .urlbar { display: none; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <figure class="window" id="window">
+      <div class="titlebar" id="titlebar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title" id="title"></span>
+      </div>
+      <div class="urlbar" id="urlbar"><span class="url" id="url"></span></div>
+      <img id="shot" src="">
+    </figure>
+    <figcaption id="caption"></figcaption>
+  </div>
+</body>
+</html>

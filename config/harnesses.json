@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "The harness chokepoint. packages/manifest.json says WHAT to install and",
+    "scripts/hostenv.py says HOW to reach it; this file says WHO consumes it.",
+    "",
+    "Adding support for a new agent runtime is an edit here and nowhere else.",
+    "No script may hardcode a skills directory or an MCP config path.",
+    "",
+    "Fields:",
+    "  label        human name, printed in audits",
+    "  detect       paths whose existence proves the harness is installed. A",
+    "               harness that is absent is skipped, not created — we do not",
+    "               scatter ~/.cursor on a machine that has no Cursor.",
+    "  skills_dirs  directories that get one symlink per skill. Empty means the",
+    "               harness reads somebody else's directory; see `covered_by`.",
+    "  covered_by   harness keys whose skills_dirs this runtime already reads.",
+    "               Linking again would register every skill two or three times.",
+    "  registry     skills.json files listing skill SOURCE directories. Merged,",
+    "               never overwritten: agent-skill-forge writes the same files.",
+    "  mcp.scope    'project' writes inside this repo, which is how a server",
+    "               stays opt-in. 'user' is global and is therefore never",
+    "               written automatically — install_mcp.py prints the command.",
+    "  mcp.format   mcpServers | opencode | codex-toml — the three shapes the",
+    "               ecosystem has converged on, and they are not compatible.",
+    "  mcp.portable true only where ${HOME} expansion in the config is a",
+    "               documented, verified feature. Everyone else gets a real",
+    "               absolute path and a gitignored file that install_mcp.py",
+    "               regenerates per machine — a harness that does not expand",
+    "               the variable would treat '${HOME}' as a literal directory.",
+    "",
+    "Paths verified 2026-09-27 against each vendor's current documentation."
+  ],
+
+  "harnesses": {
+    "claude-code": {
+      "label": "Claude Code",
+      "detect": ["~/.claude"],
+      "skills_dirs": ["~/.claude/skills"],
+      "mcp": {
+        "scope": "project",
+        "path": ".mcp.json",
+        "format": "mcpServers",
+        "portable": true,
+        "note": "Project scope shows servers as '⏸ Pending approval' until approved in a session."
+      }
+    },
+
+    "codex": {
+      "label": "OpenAI Codex",
+      "detect": ["~/.codex"],
+      "skills_dirs": ["~/.agents/skills", "~/.codex/skills"],
+      "_skills_note": [
+        "Codex's documented user-level location is ~/.agents/skills, shared with",
+        "the Universal Agent Hub. ~/.codex/skills is kept because older builds",
+        "read it and an extra symlink costs nothing; ~/.codex itself holds",
+        "config.toml, not skills."
+      ],
+      "mcp": {
+        "scope": "user",
+        "path": "~/.codex/config.toml",
+        "format": "codex-toml",
+        "note": "Codex has no project-scope MCP config, so writing this would enable the server everywhere."
+      }
+    },
+
+    "gemini-cli": {
+      "label": "Gemini CLI",
+      "detect": ["~/.gemini"],
+      "skills_dirs": ["~/.gemini/skills"],
+      "mcp": {
+        "scope": "project",
+        "path": ".gemini/settings.json",
+        "format": "mcpServers"
+      }
+    },
+
+    "antigravity-ide": {
+      "label": "Antigravity IDE",
+      "detect": ["~/.gemini/config"],
+      "skills_dirs": ["~/.gemini/config/skills"],
+      "registry": ["~/.gemini/config/skills.json"],
+      "mcp": {
+        "scope": "user",
+        "path": "~/.gemini/config/mcp_config.json",
+        "format": "mcpServers",
+        "note": "IDE-global only."
+      }
+    },
+
+    "antigravity-cli": {
+      "label": "Antigravity CLI",
+      "detect": ["~/.gemini/antigravity-cli"],
+      "skills_dirs": ["~/.gemini/antigravity-cli/skills"]
+    },
+
+    "agents-hub": {
+      "label": "Universal Agent Hub",
+      "detect": ["~/.agents"],
+      "always": true,
+      "_always_note": [
+        "The one directory created whether or not anything is detected. It is",
+        "the vendor-neutral location Codex and opencode both document, so on a",
+        "freshly imaged box — where no harness config exists yet — the skills",
+        "are already waiting when the first agent CLI starts. Every other",
+        "harness has to be present before we write into its home."
+      ],
+      "skills_dirs": ["~/.agents/skills"],
+      "registry": ["~/.agents/skills.json"]
+    },
+
+    "opencode": {
+      "label": "opencode",
+      "detect": ["~/.config/opencode"],
+      "skills_dirs": [],
+      "covered_by": ["claude-code", "agents-hub"],
+      "_skills_note": [
+        "opencode reads ~/.config/opencode/skills, ~/.claude/skills and",
+        "~/.agents/skills. We populate the last two, so linking into the first",
+        "as well would show every skill three times in its picker."
+      ],
+      "mcp": {
+        "scope": "project",
+        "path": "opencode.json",
+        "format": "opencode"
+      }
+    },
+
+    "cursor": {
+      "label": "Cursor",
+      "detect": ["~/.cursor"],
+      "skills_dirs": [],
+      "covered_by": ["claude-code"],
+      "_skills_note": [
+        "Cursor has no skills directory of its own; it reads .claude/skills.",
+        "Its agent picks up this repo's skills when opened as a project."
+      ],
+      "mcp": {
+        "scope": "project",
+        "path": ".cursor/mcp.json",
+        "format": "mcpServers"
+      }
+    }
+  }
+}
