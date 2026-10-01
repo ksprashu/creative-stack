@@ -120,24 +120,75 @@ ensure_macos() {
 }
 
 ensure_arch() {
-  $SUDO pacman -Sy --noconfirm --needed base-devel git curl python go rust \
-    >/dev/null || warn "pacman base install had warnings"
+  # -Syu, not -Sy. Arch is rolling with no stable release to pin against, so
+  # refreshing the db without taking the upgrade leaves the machine in the
+  # documented partial-upgrade state, and this is the call that sets the db
+  # every later stage inherits. Not silenced: on a box that has not been
+  # updated in months this is the longest part of stage 0, and a silent
+  # half-hour reads as a hang.
+  $SUDO pacman -Syu --noconfirm --needed base-devel git curl python go rust \
+    || warn "pacman base install had warnings"
   ok "pacman ready"
 
   # A lot of creative tooling on Arch lives in the AUR. paru is the helper that
   # runs cleanly non-interactively; build it once from the AUR itself.
-  if ! command -v paru >/dev/null 2>&1 && ! command -v yay >/dev/null 2>&1; then
-    warn "no AUR helper — building paru-bin"
-    tmp="$(mktemp -d)"
-    if git clone --depth 1 https://aur.archlinux.org/paru-bin.git "$tmp/paru-bin" \
-       && ( cd "$tmp/paru-bin" && makepkg -si --noconfirm --needed ); then
-      ok "paru installed"
-    else
-      warn "paru build failed — AUR packages will fall back to cargo/go/pip"
-    fi
-    rm -rf "$tmp"
+  #
+  # Being on PATH is not enough — `paru-bin` is a prebuilt binary linked against
+  # one libalpm soname, so on a machine whose pacman has since moved from 7.0 to
+  # 7.1 it exits 127 with `libalpm.so.15: cannot open shared object file` on
+  # every call. Nothing downstream can tell that apart from "package not found",
+  # so probe it here and rebuild from source when it is broken. The source build
+  # links against the pacman actually installed and cannot drift the same way.
+  aur_works() {
+    for h in paru yay; do
+      command -v "$h" >/dev/null 2>&1 && "$h" --version >/dev/null 2>&1 && \
+        { echo "$h"; return 0; }
+    done
+    return 1
+  }
+
+  # `paru` and `paru-bin` declare a conflict with each other, and makepkg
+  # --noconfirm answers N to "Remove paru-bin?" — so without this the source
+  # build compiles for ninety seconds and then refuses to install what it built.
+  # -Rdd because nothing legitimately depends on an AUR helper and we do not
+  # want to take a dependency tree with it.
+  drop_broken_helper() {
+    local path owner
+    path="$(command -v paru 2>/dev/null)" || return 0
+    "$path" --version >/dev/null 2>&1 && return 0     # it works; leave it alone
+    owner="$(pacman -Qoq "$path" 2>/dev/null || true)"
+    [ -n "$owner" ] || return 0
+    $SUDO pacman -Rdd --noconfirm "$owner" >/dev/null 2>&1 \
+      || warn "could not remove broken $owner — the rebuild may conflict"
+  }
+
+  if helper="$(aur_works)"; then
+    ok "AUR helper: $helper $($helper --version | head -1 | awk '{print $2}')"
   else
-    ok "AUR helper: $(command -v paru || command -v yay)"
+    if command -v paru >/dev/null 2>&1; then
+      warn "paru is installed but will not run (libalpm mismatch) — rebuilding from source"
+      pkgs=(paru)
+    else
+      warn "no AUR helper — building paru"
+      pkgs=(paru-bin paru)     # the binary first: seconds, not a Rust build
+    fi
+    tmp="$(mktemp -d)"
+    for pkg in "${pkgs[@]}"; do
+      # Runs before every attempt, not once up front: the common path installs
+      # paru-bin, discovers it is the broken one, and only then needs it gone.
+      drop_broken_helper
+      git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$tmp/$pkg" \
+        >/dev/null 2>&1 || continue
+      ( cd "$tmp/$pkg" && makepkg -si --noconfirm --needed ) || continue
+      aur_works >/dev/null && break
+      warn "$pkg installed but does not run — trying the next route"
+    done
+    rm -rf "$tmp"
+    if helper="$(aur_works)"; then
+      ok "AUR helper: $helper"
+    else
+      warn "no working AUR helper — AUR packages fall back to cargo/go/npm/source"
+    fi
   fi
 }
 
@@ -170,6 +221,19 @@ ensure_debian() {
 ensure_"$FAMILY"
 
 export PATH="$HOME/.cargo/bin:$HOME/go/bin:$HOME/.local/bin:$PATH"
+
+# Before stage 1, not after: `packages.py` installs seven npm tools and Linux
+# defaults the global prefix to root-owned /usr, so fixing this in the Node
+# stage meant every one of them died with EACCES first. Tested for writability
+# rather than compared to "/usr" — nvm and Volta set their own and are fine.
+if command -v npm >/dev/null 2>&1; then
+  npm_prefix="$(npm config get prefix 2>/dev/null || true)"
+  if [ -z "$npm_prefix" ] || [ ! -w "$npm_prefix" ]; then
+    mkdir -p "$HOME/.local/bin"
+    npm config set prefix "$HOME/.local"
+    warn "npm global prefix moved to ~/.local (was ${npm_prefix:-unset}, not writable)"
+  fi
+fi
 
 command -v python3 >/dev/null 2>&1 || die "python3 still missing after stage 0"
 if ! command -v uv >/dev/null 2>&1; then
@@ -210,27 +274,41 @@ ok "python deps + chromium installed"
 
 # ------------------------------------------------------------------ 3. npm ---
 say "3/7 Node CLIs"
-# Global npm installs need a writable prefix; on Linux the default is root-owned.
-if [ "$FAMILY" != macos ] && [ "$(npm config get prefix)" = "/usr" ]; then
-  npm config set prefix "$HOME/.local"
-  warn "npm global prefix moved to ~/.local (was /usr)"
+# packages.py already installed these from the manifest — this is the net for
+# the one that slipped through, not a second source of truth. Naming them here
+# too would be a list that drifts; ask the manifest which binaries the npm
+# route owes us and only chase the ones that are missing.
+missing_npm="$(python3 "$SCRIPT_DIR/packages.py" --missing-npm \
+  --profile "$PROFILE" 2>/dev/null || true)"
+if [ -n "$missing_npm" ]; then
+  warn "npm tools still missing: $(echo "$missing_npm" | tr '\n' ' ')"
+  # shellcheck disable=SC2086
+  npm install --global --no-fund --no-audit --loglevel=error $missing_npm \
+    || warn "npm global install had failures — doctor.py will list what is missing"
 fi
-npm install --global --silent @mermaid-js/mermaid-cli svgo @marp-team/marp-cli \
-  || warn "npm global install had failures"
 ok "node CLIs installed"
 
 # -------------------------------------------------------------- 4. bridges ---
+# Stages 4 to 6 are wiring, and `set -e` would otherwise let any one of them
+# skip the only stage that tells you what you actually got. A traceback out of
+# install_mcp.py — a shebang-less `claude` stub is enough — used to end the run
+# at 5/7 with no report at all. doctor.py runs last precisely so that it runs.
 say "4/7 App bridges (headless entry points, soundfont, Resolve env)"
-"$VENV/bin/python" "$SCRIPT_DIR/install_bridges.py"
+"$VENV/bin/python" "$SCRIPT_DIR/install_bridges.py" || \
+  warn "app bridges incomplete — doctor.py will say which"
 
 # ------------------------------------------------------------------ 5. mcp ---
 say "5/7 MCP servers + plugin marketplaces (opt-in, disabled by default)"
-"$VENV/bin/python" "$SCRIPT_DIR/install_mcp.py"
+"$VENV/bin/python" "$SCRIPT_DIR/install_mcp.py" || \
+  warn "MCP wiring incomplete — doctor.py will say which"
 
 # --------------------------------------------------------------- 6. skills ---
+# validate_skills.py stays fatal: it is also the secret scan, and syncing a
+# skill that failed it would copy whatever it caught into six harness dirs.
 say "6/7 Skills"
 "$VENV/bin/python" "$SCRIPT_DIR/validate_skills.py"
-"$VENV/bin/python" "$SCRIPT_DIR/sync_skills.py" --fix --prune
+"$VENV/bin/python" "$SCRIPT_DIR/sync_skills.py" --fix --prune || \
+  warn "skill sync incomplete — doctor.py will say which"
 
 # ---------------------------------------------------------------- 7. doctor ---
 say "7/7 Verification"

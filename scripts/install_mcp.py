@@ -122,13 +122,22 @@ PLUGINS = [
 
 
 def run(cmd, **kw):
+    """Never raise. Every caller here is optional work on somebody else's CLI.
+
+    OSError, not FileNotFoundError: a file can be on PATH with the execute bit
+    set and still not be executable. `@anthropic-ai/claude-code` leaves a
+    shebang-less shell stub at `bin/claude.exe` when its native binary did not
+    download, and `execve` answers that with `[Errno 8] Exec format error`,
+    which FileNotFoundError does not catch. That traceback took the entire
+    bootstrap down at stage 5 of 7 over a plugin marketplace nobody asked for.
+    """
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, **kw)
         return p.returncode, (p.stdout + p.stderr).strip()
-    except FileNotFoundError:
-        return 127, "command not found"
     except subprocess.TimeoutExpired:
         return 124, "timed out"
+    except OSError as exc:
+        return 126, f"cannot run {cmd[0]}: {exc.strerror or exc}"
 
 
 def resolve_is_studio():
@@ -314,8 +323,15 @@ def write_harness_configs(servers, check_only):
 
 def install_marketplaces(check_only):
     print("\n▸ Plugin marketplaces")
+    # Probed, not merely located. npm can leave a `claude` on PATH that is a
+    # stub explaining the native binary is missing, and marketplaces are a
+    # Claude-Code-only feature — there is nothing to fall back to, so the
+    # honest move is to say why and move on.
     if not shutil.which("claude"):
         return warn("claude CLI not on PATH — skipping")
+    rc, out = run(["claude", "--version"])
+    if rc != 0:
+        return warn(f"claude CLI will not run — skipping ({out[:70]})")
 
     for name, source in MARKETPLACES.items():
         if check_only:

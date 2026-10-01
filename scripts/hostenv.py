@@ -105,10 +105,29 @@ def pretty_name():
 def aur_helper():
     """Arch keeps a lot of creative tooling in the AUR. paru/yay are the two
     helpers that can run non-interactively; without one we fall back to pip,
-    npm, cargo or a release tarball instead of asking the user to build."""
+    npm, cargo or a release tarball instead of asking the user to build.
+
+    The helper has to actually *run*, not merely be on PATH. `paru-bin` ships a
+    prebuilt binary linked against a specific libalpm soname, so the moment
+    pacman moves from 7.0 to 7.1 every invocation dies with
+    `libalpm.so.15: cannot open shared object file` — exit 127, empty output.
+    A caller asking "is this package in the AUR?" reads that as "no", and the
+    whole AUR route disappears behind three separate "not in repos" warnings
+    that point at the packages rather than at the broken helper.
+    """
     if FAMILY != "arch":
         return None
-    return next((h for h in ("paru", "yay") if shutil.which(h)), None)
+    for name in ("paru", "yay"):
+        if not shutil.which(name):
+            continue
+        try:
+            probe = subprocess.run([name, "--version"], capture_output=True,
+                                   timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            return name
+    return None
 
 
 def has_display():
