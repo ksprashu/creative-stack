@@ -23,7 +23,8 @@ SCRIPTS := scripts
 OUT     := out
 
 .DEFAULT_GOAL := help
-.PHONY: help install doctor check plan skills lint demo demo-clean brewfile clean distclean
+.PHONY: help install headless doctor check plan host skills lint demo demo-clean \
+        demo-verify brewfile verify clean distclean
 
 ## ---------------------------------------------------------------- setup ---
 
@@ -64,6 +65,10 @@ skills:  ## sync skills into ~/.claude/skills
 
 brewfile:  ## regenerate the Brewfile from packages/manifest.json
 	$(PY) $(SCRIPTS)/packages.py --emit brewfile
+
+# Uses python3, not $(PY): the whole point is a machine with no venv yet.
+verify:  ## bootstrap a clean Arch + Ubuntu in containers (slow, needs docker)
+	bash $(SCRIPTS)/verify_linux.sh --skip-heavy --demo
 
 ## ----------------------------------------------------------------- demo ---
 

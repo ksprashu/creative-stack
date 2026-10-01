@@ -20,6 +20,7 @@
 #   bash scripts/verify_linux.sh arch         # one distro
 #   bash scripts/verify_linux.sh --skip-heavy # no LaTeX (~4GB and ~15 min less)
 #   bash scripts/verify_linux.sh --keep       # leave the containers for triage
+#   bash scripts/verify_linux.sh --demo       # also run `make demo` in each one
 #
 # Runs as a NON-ROOT user with passwordless sudo, because that is what an
 # Omarchy or Ubuntu desktop actually looks like. Running the bootstrap as root
@@ -37,12 +38,14 @@ LOGS="$REPO_ROOT/out/verify"
 DISTROS=()
 BOOTSTRAP_ARGS=(--headless --yes)
 KEEP=0
+DEMO=0
 for arg in "$@"; do
   case "$arg" in
     arch|ubuntu) DISTROS+=("$arg") ;;
     --keep)      KEEP=1 ;;
+    --demo)      DEMO=1 ;;
     --skip-heavy) BOOTSTRAP_ARGS+=(--skip-heavy) ;;
-    -h|--help)   sed -n '18,29p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)   sed -n '18,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "❌ Unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -77,9 +80,14 @@ seed_for() {
     # seccomp profile blocks. This is an artefact of testing in a container, not
     # something bootstrap.sh should ever do on a real machine — hence it lives
     # here and not in pacman handling anywhere else in the repo.
+    # -Syu before installing anything: the image's package db was frozen when
+    # the image was built, and Arch mirrors keep only the current version of
+    # each package, so `-Sy && install` asks for versions that were deleted
+    # months ago and gets a 404 from every mirror.
     echo 'grep -q "^DisableSandbox" /etc/pacman.conf ||
             sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
-          pacman -Sy --noconfirm --needed sudo git base-devel >/dev/null'
+          pacman -Syu --noconfirm >/dev/null
+          pacman -S --noconfirm --needed sudo git base-devel >/dev/null'
   else
     echo 'apt-get update -qq &&
           apt-get install -y -qq sudo git ca-certificates >/dev/null'
@@ -101,7 +109,14 @@ for distro in "${DISTROS[@]}"; do
 
   # A seeding failure is this distro's problem, not the whole run's — the other
   # one still has something useful to tell us.
-  if ! "$DOCKER" exec "$name" bash -ec "$(seed_for "$distro")
+  #
+  # Under `timeout` because this step can hang rather than fail: an Arch Linux
+  # ARM mirror that accepts the connection and then never sends core.db leaves
+  # pacman waiting forever, and seeding runs before the bootstraps are
+  # backgrounded, so one wedged mirror blocks the whole run — including the
+  # other distro, which has not even been created yet. 20 minutes is far past
+  # honest slowness for four small packages.
+  if ! timeout 1200 "$DOCKER" exec "$name" bash -ec "$(seed_for "$distro")
         id -u builder >/dev/null 2>&1 || useradd -m -s /bin/bash builder
         mkdir -p /etc/sudoers.d
         echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/creative-stack
@@ -130,6 +145,25 @@ done
 echo "▸ running ${#pids[@]} bootstrap(s) in parallel — this takes a while"
 if [ ${#pids[@]} -gt 0 ]; then
   for pid in "${pids[@]}"; do wait "$pid" || true; done
+fi
+
+# `doctor` says every tool is present; `make demo` says they compose. Six
+# artefacts out of one command is the difference between a box that installed
+# cleanly and a box that can actually produce something.
+if [ "$DEMO" -eq 1 ]; then
+  echo "▸ running make demo in each container"
+  for distro in "${names[@]}"; do
+    [ "$(cat "$LOGS/$distro.log.rc" 2>/dev/null || echo 1)" = 0 ] || continue
+    if "$DOCKER" exec -u builder -e HOME=/home/builder \
+         -e PATH="/home/builder/.local/bin:/home/builder/.cargo/bin:/home/builder/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+         -w /home/builder/creative-stack "cs-verify-$distro" \
+         make demo >>"$LOGS/$distro.log" 2>&1; then
+      printf '  \033[32m✓\033[0m %-8s make demo produced all six artefacts\n' "$distro"
+    else
+      printf '  \033[31m✗\033[0m %-8s make demo failed — see %s\n' "$distro" "$LOGS/$distro.log"
+      echo 1 > "$LOGS/$distro.log.rc"
+    fi
+  done
 fi
 
 echo

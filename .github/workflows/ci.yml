@@ -1,0 +1,96 @@
+# Copyright 2026 Creative Stack Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Fast gate on every change. The expensive proof — a real bootstrap on a clean
+# Arch and a clean Ubuntu — lives in bootstrap.yml and runs on a schedule.
+#
+# `--plan` is the cheap half of that proof: it resolves every manifest entry
+# against the actual package manager of the actual distro, so a package renamed
+# out from under us shows up here in ninety seconds instead of in an hour-long
+# install. It is run on all three families because the whole point of the
+# manifest is that one file answers for all of them.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: skills + secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # validate_skills.py is also the secret gate: it fails on a committed
+      # AIza…/sk-…/ghp_… token or a hardcoded /Users/<name>/ path. Keep it first
+      # so a leaked key fails the run before anything slower has a chance to.
+      - run: python3 scripts/validate_skills.py
+      - run: python3 scripts/hostenv.py
+      - run: python3 scripts/packages.py --emit brewfile
+      # The Brewfile is generated from the manifest and checked in. If editing
+      # the manifest did not regenerate it, the two have drifted.
+      - name: Brewfile matches the manifest
+        run: git diff --exit-code Brewfile
+
+  plan:
+    name: plan (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ubuntu, runner: ubuntu-latest, container: "" }
+          - { name: arch, runner: ubuntu-latest, container: "archlinux:latest" }
+          - { name: macos, runner: macos-latest, container: "" }
+    steps:
+      # The Arch image has neither node nor tar, which actions/checkout needs.
+      - name: seed arch
+        if: matrix.name == 'arch'
+        run: |
+          sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
+          # -Syu, not -Sy: the image's db is frozen at image build time and Arch
+          # mirrors keep only the current build of each package, so `-Sy` then
+          # install asks for versions that have already been deleted and gets a
+          # 404 from every mirror.
+          pacman -Syu --noconfirm --needed python git tar nodejs npm
+      - uses: actions/checkout@v4
+      - run: python3 scripts/packages.py --plan
+      # Every package must resolve to *some* route. A `skip` on a non-optional
+      # package means this distro has no way to install something the skills
+      # treat as hard-required, which is exactly the Arch pandoc failure.
+      - name: no required package is unroutable
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          import packages
+          data = packages.load()
+          pkgs = packages.packages(data, "full", False)
+          bad = [p["id"] for p, method, *_ in packages.plan(pkgs)
+                 if method == "skip" and not p.get("optional")]
+          if bad:
+              print("required packages with no route:", ", ".join(bad))
+              sys.exit(1)
+          print("every required package has a route")
+          PY
