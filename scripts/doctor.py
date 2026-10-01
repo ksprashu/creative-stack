@@ -28,7 +28,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,8 +41,15 @@ REPO_ROOT = hostenv.REPO_ROOT
 # Tools whose absence breaks a core workflow. Everything else is a soft warning.
 HARD_REQUIRED = {"ffmpeg", "ffprobe", "magick", "rsvg-convert", "pandoc"}
 
+# An "a|b" entry is satisfied by either binary, and is how the manifest's
+# `provides` lists look from this side. Distros disagree about names: Ubuntu
+# 24.04 ships ImageMagick 6, which has `convert` and no `magick` at all; Debian
+# renames bat to batcat; and a Linux box has `grim` (Wayland) or `maim` (X11)
+# but never both. Demanding one exact spelling is how a perfectly healthy
+# machine gets reported as broken — it was the only hard failure on Ubuntu.
 TOOLS = {
-    "raster": ["magick", "vips", "exiftool", "gifski", "oxipng", "pngquant", "cwebp"],
+    "raster": ["magick|convert", "vips", "exiftool", "gifski", "oxipng",
+               "pngquant", "cwebp"],
     "vector": ["rsvg-convert", "resvg", "potrace", "svgo", "fontforge"],
     "diagram": ["dot", "d2", "plantuml", "mmdc"],
     "document": ["pandoc", "gs", "pdftoppm", "qpdf", "mutool", "typst", "tectonic"],
@@ -57,10 +63,9 @@ TOOLS = {
 }
 
 if not hostenv.IS_MAC:
-    # Debian installs bat as batcat, and Wayland/X11 capture has no macOS
-    # equivalent (screencapture is built in there).
-    TOOLS["util"] = ["jq", "gh", "bat", "batcat", "chafa"]
-    TOOLS["capture"] = TOOLS["capture"] + ["grim", "maim"]
+    TOOLS["util"] = ["jq", "gh", "bat|batcat", "chafa"]
+    # No macOS equivalent — screencapture is built in there.
+    TOOLS["capture"] = TOOLS["capture"] + ["grim|maim"]
 
 # Filters /vidkit depends on. Their absence is the difference between "captions
 # burn" and a cryptic "No such filter: 'ass'" halfway through a render. On macOS
@@ -70,7 +75,10 @@ REQUIRED_FILTERS = ["ass", "subtitles", "drawtext", "zoompan", "loudnorm",
 
 # Headless entry points for GUI apps. Resolved by install_bridges.py; the
 # candidate paths per platform live in hostenv.APP_BRIDGES.
-BRIDGES = {name: str(hostenv.find_app(name) or "")
+# Keep find_app's None rather than coercing it to "": Path("") is Path("."),
+# which exists, so a box without Blender reported the app as present and then
+# failed its smoke test with `Permission denied: ''`.
+BRIDGES = {name: hostenv.find_app(name)
            for name in ("blender", "inkscape", "gimp-console")}
 
 RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
@@ -154,22 +162,34 @@ def check_platform(rep):
 
 def check_tools(rep):
     for section, tools in TOOLS.items():
-        for tool in tools:
-            if shutil.which(tool):
-                rep.add(f"tools:{section}", tool, "ok", version_of(tool))
+        for entry in tools:
+            alts = entry.split("|")
+            # hostenv.which, not shutil.which: it also searches the directories
+            # bootstrap installs into, so a tool installed minutes ago by the
+            # cargo/go/source route is not reported missing for want of a
+            # re-login.
+            found = next(filter(None, (hostenv.which(a) for a in alts)), None)
+            label = alts[0]
+            if found:
+                detail = version_of(found)
+                if Path(found).name != label:
+                    detail = f"{Path(found).name}: {detail}".rstrip(": ")
+                rep.add(f"tools:{section}", label, "ok", detail)
             else:
-                status = "fail" if tool in HARD_REQUIRED else "warn"
-                rep.add(f"tools:{section}", tool, status, "not installed")
+                status = "fail" if any(a in HARD_REQUIRED for a in alts) else "warn"
+                missing = ("not installed" if len(alts) == 1
+                           else f"not installed (tried {', '.join(alts)})")
+                rep.add(f"tools:{section}", label, status, missing)
 
 
 def check_bridges(rep, quick):
     for name, path in BRIDGES.items():
-        if not Path(path).exists():
-            rep.add("bridges", name, "warn", f"app not found at {path}")
+        if path is None:
+            rep.add("bridges", name, "warn", "app not installed")
             continue
-        linked = shutil.which(name)
+        linked = hostenv.which(name)
         rep.add("bridges", name, "ok" if linked else "warn",
-                linked or "app present but not linked into PATH")
+                linked or f"{path} present but not linked into PATH")
 
     if quick:
         rep.add("bridges", "smoke tests", "skip", "--quick")
@@ -190,8 +210,9 @@ def _produced(path):
 
 def _smoke_blender(rep, td):
     exe = BRIDGES["blender"]
-    if not Path(exe).exists():
+    if exe is None:
         return rep.add("smoke", "blender render", "skip", "Blender not installed")
+    exe = str(exe)
     out = td / "blender.png"
     expr = (
         "import bpy;"
@@ -210,8 +231,9 @@ def _smoke_blender(rep, td):
 
 def _smoke_inkscape(rep, td):
     exe = BRIDGES["inkscape"]
-    if not Path(exe).exists():
+    if exe is None:
         return rep.add("smoke", "inkscape export", "skip", "Inkscape not installed")
+    exe = str(exe)
     svg = td / "in.svg"
     svg.write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">'
@@ -226,8 +248,9 @@ def _smoke_inkscape(rep, td):
 
 def _smoke_gimp(rep, td):
     exe = BRIDGES["gimp-console"]
-    if not Path(exe).exists():
+    if exe is None:
         return rep.add("smoke", "gimp batch", "skip", "GIMP not installed")
+    exe = str(exe)
     # GIMP 3.x: Script-Fu is the stable batch surface across point releases.
     out = td / "gimp.png"
     script = (
@@ -246,7 +269,7 @@ def _smoke_gimp(rep, td):
 
 
 def _smoke_ffmpeg(rep, td):
-    if not shutil.which("ffmpeg"):
+    if not hostenv.which("ffmpeg"):
         return rep.add("smoke", "ffmpeg encode", "fail", "ffmpeg missing")
     out = td / "bars.mp4"
     rc, msg = run([hostenv.ffmpeg_bin("ffmpeg"), "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25",
@@ -275,7 +298,7 @@ def _check_ffmpeg_filters(rep):
 
 
 def _smoke_fluidsynth(rep, td):
-    if not shutil.which("fluidsynth"):
+    if not hostenv.which("fluidsynth"):
         return rep.add("smoke", "fluidsynth render", "skip", "fluidsynth missing")
     sf = hostenv.soundfont()
     if not sf:
