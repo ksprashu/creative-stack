@@ -151,6 +151,17 @@ python3 scripts/packages.py --check  # just: did every package produce its binar
 `doctor.py` probes each AI model separately and reports per-model reachability, so an org policy
 blocking Veo shows up as one amber line rather than a skill failing at render time.
 
+The claim that this works on a clean Linux box is tested rather than asserted:
+
+```bash
+make verify        # bootstrap a fresh Arch and a fresh Ubuntu in containers
+```
+
+It runs as a non-root user with passwordless sudo — the shape of an Omarchy or Ubuntu desktop —
+and leaves the logs in `out/verify/`. CI runs the same script weekly on amd64, which covers the
+failures nobody here controls: a renamed apt package, a dropped AUR package, a new compiler that
+rejects a vendored crate.
+
 ---
 
 ## Security
