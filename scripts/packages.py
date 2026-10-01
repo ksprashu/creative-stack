@@ -45,6 +45,15 @@ BREWFILE = REPO_ROOT / "Brewfile"
 GREEN, YELLOW, RED, DIM, BOLD, RESET = (
     "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[1m", "\033[0m")
 
+# Every install here is a subprocess writing to the same stdout we do. Python
+# block-buffers when that stdout is a pipe — which it is under `bootstrap.sh >
+# log` — so our "$ cargo install silicon" lines pile up in an 8KB buffer and
+# flush at exit, while cargo's own output goes straight through. The log ends
+# up with the whole build in one place and the commands that caused it in
+# another, which reads as if every command ran silently and failed.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+
 
 def ok(msg):
     print(f"    {GREEN}✓{RESET} {msg}")
@@ -81,6 +90,12 @@ def packages(data, profile="full", skip_heavy=False):
             if skip_heavy and pkg.get("heavy"):
                 continue
             out.append(dict(pkg, group=group["name"]))
+    # Stable, so the manifest's own order survives for everything that has not
+    # asked to jump the queue. `early` exists for packages that must win a race
+    # against a dependency resolver rather than against another package — see
+    # the `jack` entry, where anything pulling ffmpeg picks a provider for us if
+    # we have not already chosen one.
+    out.sort(key=lambda p: not p.get("early"))
     return out
 
 
@@ -218,21 +233,103 @@ def plan(pkgs):
 
 # -------------------------------------------------------------- installers ---
 
-def run(cmd, timeout=3600):
+def run(cmd, timeout=3600, env=None):
     print(f"    {DIM}$ {' '.join(cmd)}{RESET}")
     try:
-        return subprocess.run(cmd, timeout=timeout).returncode == 0
+        return subprocess.run(cmd, timeout=timeout, env=env).returncode == 0
     except (OSError, subprocess.SubprocessError) as exc:
         fail(f"{cmd[0]}: {exc}")
         return False
+
+
+def build_env():
+    """Environment for the routes that compile C on the way in (cargo, uv).
+
+    Two things go wrong on a real Linux box and neither is the package's fault:
+
+    Arch Linux ARM builds its `python` with distcc, so sysconfig hands every
+    setuptools C-extension build `CXX=/usr/lib/distcc/bin/g++` — a path that
+    does not exist on the installed machine. manim's moderngl dependency dies
+    with `[Errno 2] No such file or directory`. Pinning CC/CXX to the real
+    compilers overrides the recorded value.
+
+    GCC 14 promoted `-Wincompatible-pointer-types` and friends from warning to
+    error, and crates that vendor decade-old C no longer build — silicon pulls
+    in an onig_sys that fails on exactly this. Distros carry the same relaxation.
+    """
+    env = dict(os.environ)
+    if hostenv.IS_MAC:
+        return env
+    for var, candidates in (("CC", ("gcc", "cc", "clang")),
+                            ("CXX", ("g++", "c++", "clang++"))):
+        current = env.get(var)
+        if current and Path(current.split()[0]).exists():
+            continue
+        found = next((hostenv.which(c) for c in candidates if hostenv.which(c)), None)
+        if found:
+            env[var] = found
+    # CFLAGS only. Both of these describe C constructs, so g++ answers every
+    # single translation unit with "command-line option is valid for C/ObjC but
+    # not for C++" — thousands of lines of noise around the one real error.
+    relax = "-Wno-incompatible-pointer-types -Wno-implicit-function-declaration"
+    env["CFLAGS"] = f"{env.get('CFLAGS', '')} {relax}".strip()
+    return env
+
+
+PACMAN_LOCK = Path("/var/lib/pacman/db.lck")
+
+# An hour is not enough for the one long transaction. A headless Arch install is
+# ~330 packages and over a gigabyte, and on Arch Linux ARM — whose mirrors run at
+# a fraction of the speed of the x86 ones — that download alone takes over two
+# hours. Timing out mid-download does not just lose the transaction: pacman is
+# killed holding db.lck, and every later call in the run dies instantly on the
+# lock, so one slow mirror turns into sixty "install failed" lines that have
+# nothing to do with the packages named in them. The timeout is a backstop
+# against a genuinely wedged process, not a schedule.
+PACMAN_TIMEOUT = 4 * 3600
+
+
+def clear_stale_pacman_lock():
+    """Remove a db.lck left behind by a pacman that was killed rather than exited.
+
+    pacman prints the advice and declines to act on it, which is right for an
+    interactive user and wrong here: nothing else on the box is installing
+    packages, and leaving it means the rest of the bootstrap fails on a lock
+    file instead of on anything real. Interrupting `make install` with Ctrl-C
+    produces exactly the same state.
+    """
+    if hostenv.FAMILY != "arch" or not PACMAN_LOCK.exists():
+        return
+    try:
+        if subprocess.run(["pgrep", "-x", "pacman"],
+                          capture_output=True, timeout=30).returncode == 0:
+            return      # a real pacman is running — the lock is doing its job
+    except (OSError, subprocess.SubprocessError):
+        return          # cannot tell; never take a lock we have not ruled out
+    warn(f"stale {PACMAN_LOCK} from an interrupted pacman — removing")
+    subprocess.run(hostenv.sudo_prefix() + ["rm", "-f", str(PACMAN_LOCK)],
+                   timeout=60)
 
 
 def install_native(names):
     if not names:
         return True
     if hostenv.FAMILY == "arch":
-        return run(hostenv.sudo_prefix() + ["pacman", "-S", "--needed",
-                                            "--noconfirm", *names])
+        clear_stale_pacman_lock()
+        cmd = hostenv.sudo_prefix() + ["pacman", "-S", "--needed",
+                                       "--noconfirm", *names]
+        if run(cmd, timeout=PACMAN_TIMEOUT):
+            return True
+        clear_stale_pacman_lock()
+        # Arch mirrors keep one version of each package and delete the rest the
+        # moment a new one lands. A full bootstrap runs for over an hour, so the
+        # db snapshot taken at the start goes stale underneath us: pacman asks
+        # for qpdf-12.4.1, the mirror now only has 12.4.2, and all thirteen
+        # mirrors answer 404 for a package that is perfectly available. Refresh
+        # and ask again — the second attempt requests the version that exists.
+        warn(f"{' '.join(names)}: install failed — refreshing db and retrying")
+        refresh_indexes()
+        return run(cmd, timeout=PACMAN_TIMEOUT)
     if hostenv.FAMILY == "debian":
         env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
         cmd = hostenv.sudo_prefix() + ["apt-get", "install", "-y",
@@ -254,26 +351,133 @@ def install_aur(names):
     helper = hostenv.aur_helper()
     if not helper:
         return False
-    return run([helper, "-S", "--needed", "--noconfirm", *names])
+    # paru and yay shell out to pacman for the dependency half, so a lock left
+    # by an earlier casualty stops them just as dead.
+    clear_stale_pacman_lock()
+    return run([helper, "-S", "--needed", "--noconfirm", *names],
+               timeout=PACMAN_TIMEOUT)
+
+
+def ensure_npm_prefix():
+    """Point npm's global prefix somewhere this user can actually write.
+
+    On Linux the default is the root-owned `/usr`, so every `npm install
+    --global` dies with `EACCES: mkdir '/usr/lib/node_modules/...'`. bootstrap
+    used to fix this in its Node stage — which runs *after* packages, so the
+    seven npm tools failed on a clean box and only appeared later, leaving a
+    summary that blamed the packages. It belongs here, next to the command that
+    needs it, because `packages.py --install` also gets run on its own.
+
+    Writability, not a literal `/usr`: nvm, Volta and a Homebrew-on-Linux node
+    all have their own prefixes and are already fine.
+    """
+    if hostenv.IS_MAC:
+        return
+    try:
+        current = subprocess.run(["npm", "config", "get", "prefix"],
+                                 capture_output=True, text=True,
+                                 timeout=60).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return
+    if current and os.access(current, os.W_OK):
+        return
+    target = Path.home() / ".local"
+    (target / "bin").mkdir(parents=True, exist_ok=True)
+    if run(["npm", "config", "set", "prefix", str(target)]):
+        warn(f"npm global prefix moved to {target} (was {current or 'unset'},"
+             " not writable)")
+
+
+def npm_major():
+    try:
+        out = subprocess.run(["npm", "--version"], capture_output=True,
+                             text=True, timeout=60).stdout.strip()
+        return int(out.split(".")[0])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return 0
 
 
 def install_npm(names):
-    return run(["npm", "install", "--global", "--silent", *names])
+    ensure_npm_prefix()
+    cmd = ["npm", "install", "--global", "--no-fund", "--no-audit",
+           # Not --silent: that sets loglevel=silent, which swallows npm's
+           # errors too, so a failed install shows up in the log as a command
+           # that printed nothing and exited non-zero. --loglevel=error is as
+           # quiet as it can get while still saying what went wrong. It still
+           # lets `npm warn` through, which the allow-scripts audit below needs.
+           "--loglevel=error"]
+    allow = load().get("npm_allow_scripts", [])
+    # A command-line flag, not `npm config set allow-scripts`: the persistent
+    # form edits the user's ~/.npmrc and would keep granting these packages
+    # script execution long after this install. Gated on the major version
+    # because npm 11 and earlier have no such option and no such default.
+    if allow and npm_major() >= 12:
+        cmd.append("--allow-scripts=" + ",".join(allow))
+    print(f"    {DIM}$ {' '.join(cmd + list(names))}{RESET}")
+    try:
+        # stderr captured, stdout not: `npm warn` goes to stderr and we have to
+        # read it, but capturing both would hold npm's progress until the
+        # command finished — the same buffered-log problem line buffering
+        # exists to avoid.
+        done = subprocess.run(cmd + list(names), timeout=3600,
+                              stderr=subprocess.PIPE, text=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        fail(f"npm: {exc}")
+        return False
+    output = (done.stderr or "").strip()
+    if output:
+        print(output)
+    # npm reports a blocked script as a *warning* and exits 0, so without this
+    # the only symptom is a tool that installs "successfully" and then does not
+    # run. Surface the gap here, naming the fix, rather than leaving it to be
+    # rediscovered from a stub binary's error message.
+    if "not covered by allowScripts" in output:
+        warn("npm blocked install scripts not in the manifest's"
+             " npm_allow_scripts — add them there if a tool below is missing")
+    return done.returncode == 0
 
 
 def install_uv(names):
+    env = build_env()
     if hostenv.which("uv"):
-        return all(run(["uv", "tool", "install", "--quiet", n]) for n in names)
+        return all(run(["uv", "tool", "install", "--quiet", n], env=env)
+                   for n in names)
     if hostenv.which("pipx"):
-        return all(run(["pipx", "install", n]) for n in names)
+        return all(run(["pipx", "install", n], env=env) for n in names)
     return False
 
 
 def install_cargo(names):
+    """A name that looks like a URL is installed with --git.
+
+    Not everything is on crates.io under the name you expect: `cargo install
+    agg` pulls an unrelated library crate and fails with "nothing to install",
+    while the agg we want (asciinema's GIF renderer) only publishes from its
+    repository.
+
+    `--locked` first, then the same command without it. A lockfile is a snapshot
+    of what compiled on the author's machine at release time, and an abandoned
+    crate's snapshot rots: silicon 0.5.2 pins `time` 0.3.x from before the
+    `Box<_>` inference fix, so `cargo install --locked silicon` fails with
+    `error[E0282]` in a dependency nobody here chose. Unlocked, cargo picks the
+    patched `time` and the build goes through. Locked remains the default
+    because it is the reproducible one — the retry is for crates whose pins have
+    aged out from under them, not a general loosening.
+    """
     if not hostenv.which("cargo"):
         warn("cargo not found — install rustup to get these")
         return False
-    return all(run(["cargo", "install", "--locked", n]) for n in names)
+    env = build_env()
+    good = True
+    for name in names:
+        head = (["cargo", "install", "--git", name]
+                if name.startswith(("https://", "git@"))
+                else ["cargo", "install", name])
+        if run([*head[:2], "--locked", *head[2:]], env=env):
+            continue
+        warn(f"{name}: --locked build failed — retrying with fresh dependencies")
+        good &= run(head, env=env)
+    return good
 
 
 def install_go(names):
@@ -303,20 +507,71 @@ def install_source(names):
     return good
 
 
+def fetch(url, timeout=120):
+    """Download a URL to bytes, preferring curl over urllib.
+
+    urllib validates TLS against certifi, which a python.org or pyenv-built
+    interpreter ships without installing — every fetch then dies with
+    CERTIFICATE_VERIFY_FAILED on an otherwise healthy machine, and a caller
+    that treats any exception as "not available" quietly draws the wrong
+    conclusion. curl uses the OS trust store and exists on macOS, Arch and
+    Debian alike. Same reasoning as install_bridges._download.
+    """
+    curl = hostenv.which("curl")
+    if curl:
+        done = subprocess.run([curl, "-fsSL", "--retry", "2", url],
+                              capture_output=True, timeout=timeout)
+        if done.returncode != 0:
+            raise RuntimeError(done.stderr.decode(errors="replace").strip()
+                               or f"curl exited {done.returncode}")
+        return done.stdout
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
+        return response.read()
+
+
+def _font_zip_urls(repo):
+    """Where a font family's *built* binaries live, best candidate first.
+
+    The release assets, not the branch archive: googlefonts/googlesans-code
+    keeps only .glyph sources on `main`, so downloading main.zip succeeds,
+    finds zero .ttf files, and reports a cheerful ✓ for a font nobody
+    installed. The branch archive stays as a fallback for the repos that do
+    commit their builds and cut no releases.
+    """
+    api = f"https://api.github.com/repos/{repo}/releases/latest"
+    try:
+        release = json.loads(fetch(api, timeout=60))
+        urls = [a["browser_download_url"] for a in release.get("assets", [])
+                if a["name"].lower().endswith(".zip")
+                and "android" not in a["name"].lower()]
+    except Exception:  # noqa: BLE001 - no releases, rate limited, offline
+        urls = []
+    for branch in ("main", "master"):
+        urls.append(f"https://github.com/{repo}/archive/refs/heads/{branch}.zip")
+    return urls
+
+
 def install_font_release(names):
     """Fetch a font family straight from its GitHub release into the user font
     dir. Used for families no distro packages (Google Sans Code)."""
-    import urllib.request
     import zipfile
     import io
 
     good = True
     for repo in names:
-        url = f"https://github.com/{repo}/archive/refs/heads/main.zip"
         try:
-            info(f"downloading {url}")
-            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310
-                blob = response.read()
+            blob, url = None, None
+            for candidate in _font_zip_urls(repo):
+                try:
+                    info(f"downloading {candidate}")
+                    blob = fetch(candidate)
+                    url = candidate
+                    break
+                except Exception as exc:  # noqa: BLE001 - try the next candidate
+                    warn(f"{candidate}: {exc}")
+            if blob is None:
+                raise RuntimeError("no downloadable archive")
             target = hostenv.user_font_dir()
             target.mkdir(parents=True, exist_ok=True)
             count = 0
@@ -325,6 +580,8 @@ def install_font_release(names):
                     if entry.lower().endswith((".ttf", ".otf")):
                         (target / Path(entry).name).write_bytes(archive.read(entry))
                         count += 1
+            if not count:
+                raise RuntimeError(f"{url} contained no .ttf/.otf")
             ok(f"{repo}: {count} font files -> {target}")
         except Exception as exc:  # noqa: BLE001 - fonts are best-effort
             warn(f"{repo}: {exc}")
@@ -349,8 +606,16 @@ def refresh_indexes():
         subprocess.run(hostenv.sudo_prefix() + ["apt-get", "update", "-qq"],
                        env=env, timeout=600)
     elif hostenv.FAMILY == "arch":
-        subprocess.run(hostenv.sudo_prefix() + ["pacman", "-Sy", "--noconfirm"],
-                       timeout=600)
+        # -Syu, never -Sy. Arch has no stable release to pin against, so a db
+        # refreshed without the matching upgrade leaves the machine in the
+        # documented partial-upgrade state: the new index describes packages
+        # built against libraries this box has not taken yet, and the next
+        # install pulls a dependency that will not link. It is also slower in
+        # practice, because every subsequent -S then has to resolve around the
+        # skew. The upgrade is the price of touching the db at all.
+        clear_stale_pacman_lock()
+        subprocess.run(hostenv.sudo_prefix() + ["pacman", "-Syu", "--noconfirm"],
+                       timeout=PACMAN_TIMEOUT)
     elif hostenv.FAMILY == "macos":
         subprocess.run(["brew", "update"], timeout=1800)
 
@@ -395,6 +660,32 @@ def do_install(rows):
         else:
             for pkg, payload in items:
                 results[pkg["id"]] = INSTALLERS[method](payload)
+
+    # A route can report success and still leave nothing on PATH. `paru -S
+    # pandoc-bin` resolves cleanly on aarch64 and then dies on the PKGBUILD's
+    # x86_64-only arch check, and AUR metadata carries no architecture field we
+    # could have consulted beforehand. `provides` is the only honest test, so
+    # ask it again and spend the declared fallback on whatever is still missing
+    # — the same rule doctor.py applies: a tool counts when its binary exists,
+    # not when a package manager says the install went fine.
+    rescued = []
+    for pkg, method, payload, reason in rows:
+        fallback = pkg.get("fallback")
+        if not fallback or method in ("have", "n/a", fallback["kind"]):
+            continue
+        if satisfied(pkg) is not False:
+            continue
+        warn(f"{pkg['id']}: {method} left it missing — falling back to"
+             f" {fallback['kind']}")
+        results[pkg["id"]] = INSTALLERS[fallback["kind"]]([fallback["name"]])
+        # Ask `provides` again rather than trusting the fallback's own exit
+        # code. "fallback rescued: marp-cli" was printed for a package that was
+        # still missing afterwards, which is the exact failure this whole block
+        # exists to catch.
+        if satisfied(pkg) is not False:
+            rescued.append(pkg["id"])
+    if rescued:
+        info(f"fallback rescued: {', '.join(rescued)}")
 
     return results, manual, skipped
 
@@ -485,6 +776,8 @@ def main():
     mode.add_argument("--install", action="store_true")
     mode.add_argument("--check", action="store_true", help="verify provides")
     mode.add_argument("--emit", choices=["brewfile"])
+    mode.add_argument("--missing-npm", action="store_true",
+                      help="print npm package names whose provides are absent")
     ap.add_argument("--profile", choices=["full", "headless"], default="full",
                     help="headless drops desktop apps")
     ap.add_argument("--skip-heavy", action="store_true",
@@ -508,6 +801,16 @@ def main():
     pkgs = packages(data, args.profile, args.skip_heavy)
     if args.group:
         pkgs = [p for p in pkgs if p["group"] in args.group]
+
+    if args.missing_npm:
+        # Machine-readable and silent on success, because bootstrap's Node stage
+        # consumes it. Keeps the retry list in the manifest instead of spelling
+        # the package names out a second time in shell, where they would drift.
+        for pkg in pkgs:
+            route = pkg.get("fallback") or {}
+            if route.get("kind") == "npm" and satisfied(pkg) is False:
+                print(route["name"])
+        return 0
 
     print(f"{BOLD}{hostenv.pretty_name()}{RESET}  ·  {hostenv.PACKAGE_MANAGER}"
           + (f" + {hostenv.aur_helper()}" if hostenv.aur_helper() else "")
@@ -546,8 +849,19 @@ def main():
     results, manual, skipped = do_install(rows)
 
     print(f"\n{BOLD}Summary{RESET}")
-    good = sum(1 for v in results.values() if v)
-    bad = [k for k, v in results.items() if not v]
+    # An installer's exit code is a claim, not evidence. npm exits non-zero on
+    # a first install that nevertheless leaves a working binary on PATH, and
+    # reporting seven red ✗ for tools doctor then finds healthy teaches people
+    # to ignore this summary. Where `provides` can answer, it overrules the exit
+    # code in both directions; only packages with nothing observable (a bare
+    # library) are still judged by what the package manager said.
+    by_id = {p["id"]: p for p in pkgs}
+    bad = []
+    for pkg_id, claimed in results.items():
+        state = satisfied(by_id[pkg_id])
+        if state is False or (state is None and not claimed):
+            bad.append(pkg_id)
+    good = len(results) - len(bad)
     have = sum(1 for _, m, *_ in rows if m == "have")
     ok(f"{have} already present, {good} installed")
     for pkg_id in bad:

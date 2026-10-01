@@ -35,12 +35,16 @@ brew "unzip"
 brew "cmake"
 brew "pkg-config"
 brew "node"
+# the headers live in source-build-deps, not here — `provides: python3` is
+# already satisfied on every machine that can run this script, so this entry
+# resolves to `have` and its package list is never installed.
 brew "python@3.13"
 # /vidkit checks caption fonts with fc-match
 brew "fontconfig"
 
 # ---------------------------------- raster ----------------------------------
-# swiss-army raster: convert, composite, montage
+# swiss-army raster. Ubuntu 24.04 still ships ImageMagick 6, whose binary is
+# `convert`, not `magick` — hostenv.magick_cmd() papers over the difference.
 brew "imagemagick"
 # fast large-image pipeline
 brew "vips"
@@ -54,6 +58,7 @@ brew "gifski"
 brew "oxipng"
 # lossy PNG quantization
 brew "pngquant"
+# Arch splits the cwebp/dwebp binaries out of the library into libwebp-utils
 brew "webp"
 
 # ---------------------------------- vector ----------------------------------
@@ -72,9 +77,18 @@ brew "fontforge"
 brew "graphviz"
 # declarative diagrams, good defaults
 brew "d2"
+# one of /vector's four diagram engines, and the only one that needs a JVM.
+# Absent on Arch Linux ARM: it lives in x86_64 extra, so ALARM does not
+# build it and the AUR does not shadow an official package. Left as a
+# warning rather than fallen back to the upstream jar, because d2, graphviz
+# and mermaid cover the same ground without adding Java to the stack.
 brew "plantuml"
 
 # -------------------------------- documents ---------------------------------
+# hard-required by /deck and the document skills. pandoc is Haskell, so the
+# smaller distro ports do not carry it — Arch Linux ARM has neither pandoc-
+# cli nor pandoc-bin (x86_64 only). The fallback installs upstream's static
+# release tarball, which is dependency-free on every Linux.
 brew "pandoc"
 brew "ghostscript"
 brew "poppler"
@@ -92,6 +106,9 @@ cask "mactex-no-gui"
 brew "marp-cli"
 # terminal-native presentations
 brew "presenterm"
+# marp --pptx-editable converts through soffice; without it PPTX export is
+# one image per slide
+cask "libreoffice"
 
 # ---------------------------------- video -----------------------------------
 brew "ffmpeg"
@@ -99,7 +116,9 @@ brew "ffmpeg"
 # drawtext are missing. ffmpeg-full has them and is keg-only, so it does not
 # shadow the stock binary. Linux distro ffmpeg already includes them.
 brew "ffmpeg-full"
-# encode ladders / device presets
+# encode ladders / device presets. Convenience over ffmpeg, never the only
+# route — /vidkit encodes with ffmpeg. Absent on Arch Linux ARM (x86_64
+# extra only), which is a warning and nothing more.
 brew "handbrake"
 # chapter + track surgery without re-encode
 brew "mkvtoolnix"
@@ -114,7 +133,9 @@ brew "vhs"
 # vhs needs ttyd to drive a terminal
 brew "ttyd"
 brew "asciinema"
-# asciinema cast -> GIF
+# asciinema cast -> GIF. Installed from the repository, not crates.io: the
+# `agg` crate name is taken by an unrelated library, and `cargo install agg`
+# fails with "nothing to install ... it has no binaries".
 brew "agg"
 # code -> PNG
 brew "silicon"
@@ -174,6 +195,10 @@ cask "sonic-pi"
 
 # ---------------------------------- fonts -----------------------------------
 cask "font-roboto"
+# Debian's fonts-roboto is a 2017 snapshot of the proportional family only —
+# it installs cleanly and leaves no Roboto Mono, which fc-list then reports
+# as missing. Upstream's repo carries the built ttf/otf on its default
+# branch.
 cask "font-roboto-mono"
 cask "font-inter"
 cask "font-jetbrains-mono"
