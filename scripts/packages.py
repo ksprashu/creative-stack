@@ -90,12 +90,10 @@ def packages(data, profile="full", skip_heavy=False):
             if skip_heavy and pkg.get("heavy"):
                 continue
             out.append(dict(pkg, group=group["name"]))
-    # Stable, so the manifest's own order survives for everything that has not
-    # asked to jump the queue. `early` exists for packages that must win a race
-    # against a dependency resolver rather than against another package — see
-    # the `jack` entry, where anything pulling ffmpeg picks a provider for us if
-    # we have not already chosen one.
-    out.sort(key=lambda p: not p.get("early"))
+    # Manifest order, so `--plan` reads as the grouped table it is written as.
+    # `early` is not applied here: it is an install-ordering concern and only
+    # bites on one code path, so do_install applies it where it matters rather
+    # than reshuffling the list every other caller shares.
     return out
 
 
@@ -288,25 +286,57 @@ PACMAN_LOCK = Path("/var/lib/pacman/db.lck")
 # against a genuinely wedged process, not a schedule.
 PACMAN_TIMEOUT = 4 * 3600
 
+# Set by install_native the first time it answers a failure with a full -Syu.
+# See the comment at that call for why the refresh is worth doing once and not
+# worth doing twice.
+_db_refreshed_after_failure = False
+
+
+# Everything that takes db.lck. pacman itself is the common case here, but on a
+# desktop — which Omarchy is — the lock is just as likely to belong to pamac's
+# background update check or to a GUI front-end the user left open. Removing a
+# live lock is not a failed install, it is two writers in one package database,
+# so the list errs long: a name on it that is not running costs nothing.
+PACMAN_LOCK_HOLDERS = ("pacman", "pacman-static", "pamac", "pamac-daemon",
+                       "pamac-manager", "paru", "yay", "pikaur", "trizen",
+                       "aura", "octopi", "checkupdates", "pacmatic")
+
 
 def clear_stale_pacman_lock():
-    """Remove a db.lck left behind by a pacman that was killed rather than exited.
+    """Remove a db.lck left behind by a package manager that was killed.
 
     pacman prints the advice and declines to act on it, which is right for an
-    interactive user and wrong here: nothing else on the box is installing
-    packages, and leaving it means the rest of the bootstrap fails on a lock
-    file instead of on anything real. Interrupting `make install` with Ctrl-C
-    produces exactly the same state.
+    interactive user and wrong here: the rest of the bootstrap would fail on a
+    lock file instead of on anything real. Interrupting `make install` with
+    Ctrl-C produces exactly the same state.
+
+    The lock is only removed once nothing is holding it. `fuser` answers that
+    directly — pacman keeps the descriptor open for the life of the transaction
+    — and is the authority when present; the process-name sweep is the fallback
+    for a box without psmisc.
     """
     if hostenv.FAMILY != "arch" or not PACMAN_LOCK.exists():
         return
     try:
-        if subprocess.run(["pgrep", "-x", "pacman"],
-                          capture_output=True, timeout=30).returncode == 0:
-            return      # a real pacman is running — the lock is doing its job
+        if hostenv.which("fuser"):
+            # 0 = someone has it open. Any other code (1 = nobody) falls through
+            # to the name sweep rather than being trusted on its own, because
+            # fuser cannot see into a PID namespace it is not in.
+            if subprocess.run(["fuser", str(PACMAN_LOCK)],
+                              capture_output=True, timeout=30).returncode == 0:
+                return
+        # One name per call rather than one alternation. `pgrep -x` anchors a
+        # regex by comparing match extents, which does the right thing with
+        # `(a|b)` on procps-ng and is not something to be relying on when the
+        # cost of being wrong is two writers in one package database. Thirteen
+        # process scans, only ever on the branch where the lock already exists.
+        for holder in PACMAN_LOCK_HOLDERS:
+            if subprocess.run(["pgrep", "-x", holder],
+                              capture_output=True, timeout=30).returncode == 0:
+                return  # a real package manager is running — the lock is live
     except (OSError, subprocess.SubprocessError):
         return          # cannot tell; never take a lock we have not ruled out
-    warn(f"stale {PACMAN_LOCK} from an interrupted pacman — removing")
+    warn(f"stale {PACMAN_LOCK} from an interrupted package manager — removing")
     subprocess.run(hostenv.sudo_prefix() + ["rm", "-f", str(PACMAN_LOCK)],
                    timeout=60)
 
@@ -327,6 +357,18 @@ def install_native(names):
         # for qpdf-12.4.1, the mirror now only has 12.4.2, and all thirteen
         # mirrors answer 404 for a package that is perfectly available. Refresh
         # and ask again — the second attempt requests the version that exists.
+        #
+        # Once per run, not once per failure. A failed batch is retried one
+        # package at a time, so without the guard a single genuinely broken
+        # name drags a full -Syu through every one of its fifty-nine innocent
+        # neighbours: an hour of system upgrades that the first refresh already
+        # settled. After the db is current a stale version is no longer a
+        # plausible cause, so the second attempt would ask the same question
+        # and get the same answer.
+        global _db_refreshed_after_failure
+        if _db_refreshed_after_failure:
+            return False
+        _db_refreshed_after_failure = True
         warn(f"{' '.join(names)}: install failed — refreshing db and retrying")
         refresh_indexes()
         return run(cmd, timeout=PACMAN_TIMEOUT)
@@ -561,27 +603,34 @@ def install_font_release(names):
     good = True
     for repo in names:
         try:
-            blob, url = None, None
+            target = hostenv.user_font_dir()
+            target.mkdir(parents=True, exist_ok=True)
+            count = 0
+            # A candidate is only spent once it has yielded a font. Downloading
+            # successfully is not the same as being the right archive: a repo
+            # can publish a release zip of sources, or of webfonts only, and
+            # breaking out of this loop on the download would then fail the
+            # whole package with the branch archives — which do carry the
+            # fonts — never tried. Extraction is the acceptance test, so it
+            # belongs inside the loop over candidates.
             for candidate in _font_zip_urls(repo):
                 try:
                     info(f"downloading {candidate}")
                     blob = fetch(candidate)
-                    url = candidate
-                    break
                 except Exception as exc:  # noqa: BLE001 - try the next candidate
                     warn(f"{candidate}: {exc}")
-            if blob is None:
-                raise RuntimeError("no downloadable archive")
-            target = hostenv.user_font_dir()
-            target.mkdir(parents=True, exist_ok=True)
-            count = 0
-            with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-                for entry in archive.namelist():
-                    if entry.lower().endswith((".ttf", ".otf")):
-                        (target / Path(entry).name).write_bytes(archive.read(entry))
-                        count += 1
+                    continue
+                with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                    for entry in archive.namelist():
+                        if entry.lower().endswith((".ttf", ".otf")):
+                            (target / Path(entry).name).write_bytes(
+                                archive.read(entry))
+                            count += 1
+                if count:
+                    break
+                warn(f"{candidate}: contained no .ttf/.otf")
             if not count:
-                raise RuntimeError(f"{url} contained no .ttf/.otf")
+                raise RuntimeError("no archive yielded a font file")
             ok(f"{repo}: {count} font files -> {target}")
         except Exception as exc:  # noqa: BLE001 - fonts are best-effort
             warn(f"{repo}: {exc}")
@@ -655,7 +704,16 @@ def do_install(rows):
                     results[pkg["id"]] = True
             else:
                 warn("batch failed — retrying individually")
-                for pkg, payload in items:
+                # `early` first, and only here. Inside the batch above, naming
+                # a package in the transaction settles any virtual it provides
+                # whatever order the arguments are in. One at a time there is
+                # no such protection: whoever installs first picks the provider
+                # for everyone after, which is how gifski — pulling ffmpeg from
+                # the image group — chose jack2 before the audio group had a
+                # chance to ask for pipewire-jack. Stable, so everything that
+                # has not asked to jump the queue keeps manifest order.
+                for pkg, payload in sorted(items,
+                                           key=lambda it: not it[0].get("early")):
                     results[pkg["id"]] = INSTALLERS[method](payload)
         else:
             for pkg, payload in items:
@@ -674,6 +732,20 @@ def do_install(rows):
         if not fallback or method in ("have", "n/a", fallback["kind"]):
             continue
         if satisfied(pkg) is not False:
+            continue
+        # `manual` is a destination, not an installer — there is no entry for it
+        # in INSTALLERS and there should not be, because the payload is a
+        # download page a human has to visit. Dispatching it raised KeyError and
+        # took the whole install down before the summary that would have said
+        # which packages were missing. Route it to the same report that a
+        # first-choice `manual` goes to. Reaper and DaVinci Resolve reach this
+        # path on a real Arch desktop, where their AUR builds need a hand-placed
+        # installer archive and fail without one.
+        if fallback["kind"] not in INSTALLERS:
+            if fallback["kind"] != "manual":
+                warn(f"{pkg['id']}: unknown fallback kind {fallback['kind']!r}")
+            manual.append((pkg, [fallback["name"]], f"{method} route failed"))
+            results[pkg["id"]] = False
             continue
         warn(f"{pkg['id']}: {method} left it missing — falling back to"
              f" {fallback['kind']}")
@@ -778,6 +850,8 @@ def main():
     mode.add_argument("--emit", choices=["brewfile"])
     mode.add_argument("--missing-npm", action="store_true",
                       help="print npm package names whose provides are absent")
+    mode.add_argument("--fix-npm", action="store_true",
+                      help="reinstall the npm packages --missing-npm lists")
     ap.add_argument("--profile", choices=["full", "headless"], default="full",
                     help="headless drops desktop apps")
     ap.add_argument("--skip-heavy", action="store_true",
@@ -802,15 +876,26 @@ def main():
     if args.group:
         pkgs = [p for p in pkgs if p["group"] in args.group]
 
-    if args.missing_npm:
-        # Machine-readable and silent on success, because bootstrap's Node stage
-        # consumes it. Keeps the retry list in the manifest instead of spelling
-        # the package names out a second time in shell, where they would drift.
+    if args.missing_npm or args.fix_npm:
+        # Keeps the retry list in the manifest instead of spelling the package
+        # names out a second time in shell, where they would drift.
+        stragglers = []
         for pkg in pkgs:
             route = pkg.get("fallback") or {}
             if route.get("kind") == "npm" and satisfied(pkg) is False:
-                print(route["name"])
-        return 0
+                stragglers.append(route["name"])
+        if args.missing_npm:
+            # Machine-readable and silent on success: bootstrap's Node stage
+            # consumes this to decide whether to say anything at all.
+            print("\n".join(stragglers))
+            return 0
+        # --fix-npm exists so that the retry goes through install_npm rather
+        # than through a hand-written `npm install` in bootstrap.sh. The flags
+        # are not cosmetic: without --allow-scripts the retry reinstalls npm
+        # 12's no-postinstall stub, which is the very thing it is retrying.
+        if not stragglers:
+            return 0
+        return 0 if install_npm(stragglers) else 1
 
     print(f"{BOLD}{hostenv.pretty_name()}{RESET}  ·  {hostenv.PACKAGE_MANAGER}"
           + (f" + {hostenv.aur_helper()}" if hostenv.aur_helper() else "")

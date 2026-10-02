@@ -17,9 +17,10 @@
     "            npm | uv | cargo | go | source | manual",
     "  gui       true = a desktop app; skipped under --profile headless",
     "  optional  true = a failure is a warning, not an error",
-    "  early     true = install before everything else. Only for winning a race",
-    "            against a dependency resolver (see jack), not for ordering",
-    "            one package ahead of another.",
+    "  early     true = sort to the front of the install list. Only matters on",
+    "            the one-at-a-time retry pass, where it wins a race against a",
+    "            dependency resolver (see jack) — not for ordering one package",
+    "            ahead of another.",
     "",
     "Arch moves packages between extra and the AUR over time. scripts/packages.py",
     "treats every name as a hint: repo -> AUR -> fallback, and reports what it",
@@ -926,7 +927,7 @@
           "arch": "pipewire-jack",
           "debian": "libjack-jackd2-dev",
           "optional": true,
-          "note": "Reaper/SuperCollider audio backend on Linux. `early` because on Arch `jack` is a virtual package with two providers, and the first thing to pull ffmpeg — gifski, in the image group, long before audio — makes the choice for us: under --noconfirm pacman takes provider 1, jack2, without asking. pipewire-jack then conflicts with it and this entry fails. Installing it up front means the virtual is already satisfied by the time anything else needs it."
+          "note": "Reaper/SuperCollider audio backend on Linux. On Arch `jack` is a virtual package with two providers, and under --noconfirm pacman takes provider 1, jack2, without asking — so whoever pulls ffmpeg first chooses for everyone, and jack2 then conflicts with this entry. In the batched install that is harmless, because naming pipewire-jack in the same transaction settles the virtual. `early` is for the pass after a batch fails, where packages go in one at a time in list order: there, gifski in the image group reaches ffmpeg long before audio does. Sorting this to the front means the choice is already made."
         }
       ]
     },

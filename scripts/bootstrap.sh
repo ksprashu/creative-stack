@@ -282,8 +282,12 @@ missing_npm="$(python3 "$SCRIPT_DIR/packages.py" --missing-npm \
   --profile "$PROFILE" 2>/dev/null || true)"
 if [ -n "$missing_npm" ]; then
   warn "npm tools still missing: $(echo "$missing_npm" | tr '\n' ' ')"
-  # shellcheck disable=SC2086
-  npm install --global --no-fund --no-audit --loglevel=error $missing_npm \
+  # --fix-npm, not a bare `npm install` here. The retry has to carry the same
+  # --allow-scripts the first attempt did: npm 12 blocks install scripts by
+  # default, so a hand-written install in this file would cheerfully exit 0
+  # having re-created the very postinstall-less stub it was called to replace.
+  # Install flags belong next to the manifest that lists what may run them.
+  python3 "$SCRIPT_DIR/packages.py" --fix-npm --profile "$PROFILE" \
     || warn "npm global install had failures — doctor.py will list what is missing"
 fi
 ok "node CLIs installed"
