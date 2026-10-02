@@ -128,9 +128,19 @@ Do not re-discover these.
 *   **On Arch, whoever installs first picks the provider for everyone.** `jack` is virtual with
     two providers, and `--noconfirm` silently takes provider 1 rather than prompting — so
     `gifski` pulling in ffmpeg, four groups before audio is even reached, installs `jack2` and
-    the manifest's `pipewire-jack` then fails on the conflict. `early: true` on a manifest entry
-    hoists it to the front of the install order (stable sort; everything else keeps manifest
-    order). It is for races against a dependency resolver, not against another package.
+    the manifest's `pipewire-jack` then fails on the conflict. In the batched install that is
+    harmless — naming `pipewire-jack` in the same transaction settles the virtual whatever
+    order the arguments are in. `early: true` is for the pass *after* a batch fails, where
+    packages go in one at a time in list order; `do_install` sorts them there (stable, so
+    everything else keeps manifest order) and nowhere else, so `--plan` still reads as the
+    grouped table it is written as. It is for races against a dependency resolver, not against
+    another package.
+*   **`manual` is a destination, not an install method.** It has no entry in `INSTALLERS` and
+    must not have one — its payload is a download page for a human. The rescue loop in
+    `do_install` dispatched `fallback.kind` blindly and raised `KeyError` on Reaper and
+    DaVinci Resolve, aborting the whole install before the summary that would have named what
+    was missing. Any unknown kind now reports instead of raising: a route that cannot run is
+    one package's problem, never the run's.
 *   **The cargo and uv routes compile C, so they need `packages.build_env()`.** Arch Linux ARM
     builds its `python` with distcc, so sysconfig hands every setuptools extension
     `CXX=/usr/lib/distcc/bin/g++`, a path that does not exist on the installed machine — manim
@@ -171,7 +181,10 @@ Do not re-discover these.
     `--allow-scripts=…` on the command line, never `npm config set` (which would edit the
     user's `~/.npmrc` and keep granting those packages script execution forever). Name
     transitive dependencies too — npm matches the package running the script, not the one you
-    asked for. `install_npm` warns when npm blocks something the list does not cover.
+    asked for. `install_npm` warns when npm blocks something the list does not cover. Every
+    npm install goes through `install_npm`, including bootstrap's stage-3 net, which calls
+    `packages.py --fix-npm` rather than running `npm install` itself — a hand-written retry
+    without the flag reinstalls the very stub it was called to replace, and exits 0.
 *   **Never `npm --silent`.** It sets `loglevel=silent`, so a failed install appears in the log
     as a command that printed nothing and exited non-zero, which is unreadable and unfixable.
     `--no-fund --no-audit --loglevel=error` is as quiet as it gets while still explaining itself.
@@ -216,6 +229,12 @@ Do not re-discover these.
     real absolute path and is gitignored — `install_mcp.py` regenerates it per machine.
 *   `claude mcp list` answers for one harness and only when that harness is installed. The
     doctor reads the config files instead, or a Codex-only box reports the MCP layer as broken.
+*   **Never compare a workflow input to a quoted boolean inside `${{ }}`.** GitHub resolves a
+    mismatched comparison by coercing both sides to numbers: `false` becomes `0`, the string
+    `'false'` becomes `NaN`, and every comparison against `NaN` is false — so
+    `inputs.skip_heavy != 'false'` is true even when the box is unticked and the input silently
+    does nothing. Interpolate the value and let `test(1)` compare two strings, which also
+    handles the empty string a scheduled run produces.
 
 ## Testing a change
 
