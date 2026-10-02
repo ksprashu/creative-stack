@@ -103,6 +103,9 @@ for distro in "${DISTROS[@]}"; do
   names+=("$distro")
   echo "▸ $distro → $log"
 
+  # Both result files, not just the log: a .rc left by the previous run is read
+  # by the summary as this run's answer if anything stops us writing a new one.
+  rm -f "$log.rc" "$log.demo.rc"
   "$DOCKER" rm -f "$name" >/dev/null 2>&1 || true
   "$DOCKER" run -d --name "$name" --security-opt seccomp=unconfined \
     "$(image_for "$distro")" sleep infinity >/dev/null
@@ -150,6 +153,11 @@ fi
 # `doctor` says every tool is present; `make demo` says they compose. Six
 # artefacts out of one command is the difference between a box that installed
 # cleanly and a box that can actually produce something.
+#
+# Its result goes in its own .demo.rc. Writing a demo failure into the
+# bootstrap's .rc made the summary report "arch bootstrap exited 1" for a
+# bootstrap that had exited 0, which points triage at the install log for an
+# install that worked. Two questions, two answers.
 if [ "$DEMO" -eq 1 ]; then
   echo "▸ running make demo in each container"
   for distro in "${names[@]}"; do
@@ -158,10 +166,11 @@ if [ "$DEMO" -eq 1 ]; then
          -e PATH="/home/builder/.local/bin:/home/builder/.cargo/bin:/home/builder/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
          -w /home/builder/creative-stack "cs-verify-$distro" \
          make demo >>"$LOGS/$distro.log" 2>&1; then
+      echo 0 > "$LOGS/$distro.log.demo.rc"
       printf '  \033[32m✓\033[0m %-8s make demo produced all six artefacts\n' "$distro"
     else
+      echo 1 > "$LOGS/$distro.log.demo.rc"
       printf '  \033[31m✗\033[0m %-8s make demo failed — see %s\n' "$distro" "$LOGS/$distro.log"
-      echo 1 > "$LOGS/$distro.log.rc"
     fi
   done
 fi
@@ -177,6 +186,13 @@ for distro in "${names[@]}"; do
     printf '  \033[31m✗\033[0m %-8s bootstrap exited %s — see %s\n' \
       "$distro" "$rc" "$LOGS/$distro.log"
     failed=1
+  fi
+  if [ "$DEMO" -eq 1 ]; then
+    case "$(cat "$LOGS/$distro.log.demo.rc" 2>/dev/null || echo skipped)" in
+      0) printf '    \033[32m✓\033[0m %-6s make demo produced all six artefacts\n' "" ;;
+      skipped) printf '    \033[2m-\033[0m %-6s make demo skipped (bootstrap failed)\n' "" ;;
+      *) printf '    \033[31m✗\033[0m %-6s make demo failed\n' ""; failed=1 ;;
+    esac
   fi
   # doctor.py is the acceptance test; bootstrap only warns when it fails, so
   # the exit code above is not on its own proof that the stack works.

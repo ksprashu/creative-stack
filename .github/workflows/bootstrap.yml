@@ -55,7 +55,15 @@ jobs:
       - name: bootstrap both distros
         run: |
           args=(--demo)
-          if [ "${{ inputs.skip_heavy != 'false' }}" = "true" ]; then
+          # Compared in the shell, not in the ${{ }}. `inputs.skip_heavy` is a
+          # real boolean and 'false' is a string, and GitHub resolves a
+          # mismatched comparison by coercing both to numbers: false becomes 0,
+          # the string 'false' becomes NaN, and every comparison against NaN is
+          # false — so `inputs.skip_heavy != 'false'` is true even when the box
+          # is unticked, and the input did nothing. Interpolating the value and
+          # letting test(1) compare two strings has no such rule. The empty
+          # string a scheduled run produces also lands on the default.
+          if [ "${{ inputs.skip_heavy }}" != "false" ]; then
             args+=(--skip-heavy)
           fi
           bash scripts/verify_linux.sh "${args[@]}"
