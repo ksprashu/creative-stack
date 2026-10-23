@@ -6,8 +6,8 @@ edit your video, build your deck and clean up your screenshots instead of tellin
 button to press.
 
 Runs on **macOS**, **Arch** (including Omarchy) and **Debian/Ubuntu**, from a clean machine, in
-one command — and the skills install into **Claude Code, Codex, Gemini CLI, Antigravity,
-opencode and Cursor**, whichever of them the machine has.
+one command — and the skills install into **Claude Code, Codex, Gemini CLI, Antigravity
+and Cursor**, whichever of them the machine has.
 
 ```bash
 git clone https://github.com/<you>/creative-stack ~/code/github/creative-stack
@@ -22,13 +22,13 @@ bash scripts/bootstrap.sh
 | Skill | What it does |
 | --- | --- |
 | `/shot` | Screenshots worth publishing: device frames, gradient backdrops, numbered callouts, automatic secret redaction, code and terminal images |
-| `/vidkit` | Recording → published video: transcribe, cut silence, auto-zoom, burn captions, chapters, loudness, encode ladder, NLE handoff |
+| `/vidkit` | Recording → published video: transcribe, Gemini-proposed cuts and chapters, cut silence, auto-zoom, karaoke captions, motion-graphics titles and lower thirds, loudness, encode ladder, NLE handoff |
 | `/deck` | Outline → brand-themed slides → HTML / PDF / editable PPTX / per-slide PNG |
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
-| `/raster` | Batch image editing, compositing, size ladders, background removal |
+| `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
 | `/sound` | Voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers |
-| `/artgen` | Prompt → image / video / music via Gemini, Imagen, Veo and Lyria |
+| `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD |
 
 Underneath: 96 packages across 15 groups, headless bridges to Blender, Inkscape and GIMP, and
 three opt-in MCP servers.
@@ -41,6 +41,7 @@ three opt-in MCP servers.
 bash scripts/bootstrap.sh                  # everything
 bash scripts/bootstrap.sh --headless       # no desktop apps — servers, CI, containers
 bash scripts/bootstrap.sh --skip-heavy     # no LaTeX, Blender or Resolve (~10GB lighter)
+bash scripts/bootstrap.sh --with-ml        # + torch/transformers for SAM 2 refinement and video tracking (~1GB)
 bash scripts/bootstrap.sh --yes            # never prompt (cloud-init, provisioning)
 bash scripts/bootstrap.sh --doctor         # verify only, change nothing
 ```
@@ -121,7 +122,6 @@ how to tell it is installed, and which of the three incompatible MCP config dial
 | Antigravity IDE | `~/.gemini/config/skills` | `~/.gemini/config/mcp_config.json` — printed |
 | Antigravity CLI | `~/.gemini/antigravity-cli/skills` | — |
 | Universal Agent Hub | `~/.agents/skills` | — |
-| opencode | reads Claude Code's and the hub's | `opencode.json` (project, `enabled: false`) |
 | Cursor | reads Claude Code's | `.cursor/mcp.json` (project) |
 
 ```bash
@@ -130,7 +130,7 @@ python3 scripts/sync_skills.py --fix --prune   # link into all of them
 ```
 
 Only installed harnesses are written to — `~/.agents/skills` is the one exception, created
-unconditionally because Codex and opencode both read it and a freshly imaged box has no harness
+unconditionally because Codex reads it and a freshly imaged box has no harness
 config yet. Symlinks pointing outside this repo are never touched and the shared `skills.json`
 registries are merged, so `agent-skill-forge` and creative-stack coexist in the same directories.
 
@@ -164,6 +164,27 @@ rejects a vendored crate.
 
 ---
 
+## What it deliberately does not use
+
+Popular in "AI media stack" lists, and left out on purpose. Each was weighed against the three
+rules this repo runs on: deterministic local tools for precise edits, Google models and compute
+for generation, free software everywhere else.
+
+| Left out | Why | What does the job instead |
+| --- | --- | --- |
+| Sharp | A Node image layer beside a Python stack; its engine is already here | Pillow, libvips (`vips`), ImageMagick |
+| MoviePy | Decodes every frame into numpy — slow, and duplicates what ffmpeg already does | ffmpeg + the OTIO timeline in `/vidkit` |
+| Remotion | Needs a paid company licence above three people | `/vidkit motion.py`: HTML/CSS templates rendered frame-by-frame by Playwright, encoded by ffmpeg |
+| fal.ai, Replicate | Paid third-party inference | Gemini Image / Veo / Lyria on Vertex; open weights via Vertex Model Garden or Cloud Run GPUs |
+| Shotstack, Creatomate, JSON2Video | Paid cloud timelines | `/vidkit timeline.py` (OTIO JSON) rendered locally; Cloud Run Jobs if it has to be remote |
+| Cloudinary | Paid URL transforms | `/raster ladder.py`, `cutout.py`, `segment.py` |
+| Ultralytics YOLO | AGPL-3.0 | Gemini detection and segmentation, refined by SAM 2 (Apache-2.0) |
+| Imagen | Shut down 17 Aug 2026 | `gemini-3.1-flash-image` and the rest of the Gemini Image chain |
+| ComfyUI | Optional, not installed. Slow on Apple Silicon, and the Gemini APIs cover most of it | Worth adding only for LoRA style-locking, ControlNet or exact masked inpainting |
+| A wide MCP surface | Third-party servers run code with your filesystem access | Skills that call CLIs; the few MCP servers are pinned and disabled by default |
+
+---
+
 ## Security
 
 *   **API keys never touch the repo.** They live in the OS secret store; skill scripts read them
@@ -187,7 +208,7 @@ packages/         manifest.json — the single source of truth for what gets ins
 config/           harnesses.json — every agent runtime's skills dirs and MCP dialect
 scripts/          bootstrap, hostenv, packages, doctor, bridge/MCP installers, skill sync
 skills/           the eight skills, symlinked into every installed harness
-templates/        screenshot frames, deck themes, the Blender studio rig
+templates/        screenshot frames, deck themes, motion-graphics templates, the Blender studio rig
 out/              everything generated. gitignored.
 ```
 
