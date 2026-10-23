@@ -21,8 +21,7 @@
 
 The model chain and the generate-verify-refine loop are lifted from the
 existing /image-gen skill so both behave identically; what is added here is the
-Vertex path, brand tokens, and Imagen as a chain member rather than a separate
-script.
+Vertex path and brand tokens.
 
 Verification is not decoration. Image models silently drop requested text,
 misspell it, or render four fingers, and a batch of eight section headers is
@@ -39,17 +38,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import genailib as G  # noqa: E402
 
 # Same order as the /image-gen skill: the versatile workhorse, then the cheap
-# one, then the premium ones. gemini-2.5-flash-image is the last resort — it is
-# weaker at text rendering but it is exposed on projects where the 3.x family
-# is not yet enabled.
+# one, then the premium one. There is no Imagen tail any more: the 4.0 family
+# shut down on 17 Aug 2026 (Gemini API deprecations page names
+# gemini-3.1-flash-image as the replacement) and Vertex no longer lists it.
+# gemini-2.5-flash-image went on 2 Oct 2026 for the same reason.
 MODEL_SEQUENCE = [
     "gemini-3.1-flash-image",
     "gemini-3.1-flash-lite-image",
     "gemini-3-pro-image",
-    "gemini-2.5-flash-image",
 ]
-IMAGEN_SEQUENCE = ["imagen-4.0-generate-001", "imagen-4.0-fast-generate-001"]
-DEFAULT_VERIFIER = "gemini-3.5-flash"
+DEFAULT_VERIFIER = "gemini-3.8-flash"
 
 ASPECTS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "5:4", "4:5"]
 
@@ -104,23 +102,6 @@ def generate(prompt, references, aspect, size, prefer, primary, seed):
             G.warn(f"skipping reference {path}: {exc}")
 
     def call(client, model):
-        if model.startswith("imagen"):
-            # Imagen is a different method with a different response shape. It
-            # cannot take reference images at all, so a chain that has fallen
-            # this far with references attached is about to produce something
-            # unrelated — say so rather than quietly ignoring them.
-            if refs:
-                G.warn(f"{model} cannot use reference images — ignoring "
-                       f"{len(refs)} of them")
-            result = client.models.generate_images(
-                model=model, prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1, aspect_ratio=aspect,
-                    output_mime_type="image/png",
-                    **({"seed": seed} if seed is not None else {})))
-            images = getattr(result, "generated_images", None) or []
-            return images[0].image.image_bytes if images else None
-
         # aspect_ratio as a config field, not as "Aspect Ratio 16:9." glued to
         # the end of the prompt: the field is honoured exactly, whereas the
         # prompt text is a suggestion the model weighs against everything else
@@ -196,8 +177,6 @@ def main():
                     help="fixed seed, for a reproducible variation")
     ap.add_argument("--model", default=MODEL_SEQUENCE[0],
                     help=f"primary model (default {MODEL_SEQUENCE[0]})")
-    ap.add_argument("--imagen", action="store_true",
-                    help="put the Imagen models at the head of the chain")
     ap.add_argument("--verifier-model", default=DEFAULT_VERIFIER)
     ap.add_argument("--no-verify", action="store_true",
                     help="skip the review pass (one call instead of two)")
@@ -218,7 +197,7 @@ def main():
     # started and after --count has already been echoed back.
     G.backends(args.backend)
 
-    primary = IMAGEN_SEQUENCE[0] if args.imagen else args.model
+    primary = args.model
     base = G.apply_brand(args.prompt, args.brand, args.scheme, args.style)
     out = G.prepare(args.output)
     attempts = 1 if args.no_verify else max(1, args.max_attempts)
