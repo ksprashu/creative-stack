@@ -252,18 +252,20 @@ def _smoke_gimp(rep, td):
         return rep.add("smoke", "gimp batch", "skip", "GIMP not installed")
     exe = str(exe)
     # GIMP 3.x: Script-Fu is the stable batch surface across point releases.
+    # 3.x moved the layer name before the size and dropped the drawable from
+    # gimp-file-save; 3.2 also ignores (gimp-quit 0) and idles in the
+    # background, so only --quit ends the process.
     out = td / "gimp.png"
     script = (
         '(let* ((img (car (gimp-image-new 64 64 RGB)))'
-        '       (layer (car (gimp-layer-new img 64 64 RGB-IMAGE "l" 100 LAYER-MODE-NORMAL))))'
+        '       (layer (car (gimp-layer-new img "l" 64 64 RGB-IMAGE 100 LAYER-MODE-NORMAL))))'
         '  (gimp-image-insert-layer img layer 0 0)'
         '  (gimp-context-set-background \'(66 133 244))'
         '  (gimp-drawable-fill layer FILL-BACKGROUND)'
-        f'  (gimp-file-save RUN-NONINTERACTIVE img layer "{out}" "{out}")'
-        '  (gimp-quit 0))'
+        f'  (gimp-file-save RUN-NONINTERACTIVE img "{out}" -1))'
     )
-    rc, msg = run([exe, "-idf", "--batch-interpreter", "plug-in-script-fu-eval",
-                   "-b", script, "-b", "(gimp-quit 0)"], timeout=120)
+    rc, msg = run([exe, "-idf", "--quit", "--batch-interpreter",
+                   "plug-in-script-fu-eval", "-b", script], timeout=120)
     rep.add("smoke", "gimp batch", "ok" if _produced(out) else "warn",
             "Script-Fu render ok" if _produced(out) else msg[:60])
 
@@ -345,6 +347,27 @@ def check_credentials(rep):
                  "fallback when org policy blocks a model")
 
     _probe_models(rep, project, key)
+    _probe_chirp(rep, project)
+
+
+def _probe_chirp(rep, project):
+    """Chirp 3 HD is Cloud Text-to-Speech, not Vertex: its own API to enable,
+    its own client library. Listing voices is free and proves both."""
+    py = REPO_ROOT / ".venv/bin/python"
+    if not project or not py.exists():
+        return rep.add("models", "chirp 3 hd", "skip", "no project or no .venv")
+    probe = ("from google.cloud import texttospeech as t; "
+             "from google.api_core.client_options import ClientOptions as O; "
+             f"c = t.TextToSpeechClient(client_options=O(quota_project_id={project!r})); "
+             "print(sum('Chirp3-HD' in v.name for v in "
+             "c.list_voices(language_code='en-US').voices))")
+    rc, out = run([str(py), "-c", probe], timeout=60)
+    voices = out.strip().splitlines()[-1] if rc == 0 and out.strip() else ""
+    rep.add("models", "texttospeech:chirp3-hd",
+            "ok" if voices.isdigit() and int(voices) else "warn",
+            f"speech — {voices} en-US voices" if voices.isdigit()
+            else "unreachable — gcloud services enable texttospeech.googleapis.com, "
+                 "uv pip install -r requirements.txt")
 
 
 def _probe_models(rep, project, key):
@@ -357,9 +380,11 @@ def _probe_models(rep, project, key):
 
     targets = [
         ("gemini-3.1-flash-image", "image"),
-        ("imagen-4.0-generate-001", "image"),
+        ("gemini-3.8-flash", "vision"),
+        ("gemini-omni-1.1-flash-preview", "video"),
         ("veo-3.1-generate-001", "video"),
         ("lyria-002", "music"),
+        ("gemini-3.1-flash-tts-preview", "speech"),
     ]
 
     # Vertex serves these families from different places, and a model is
@@ -404,6 +429,26 @@ def _probe_models(rep, project, key):
             where = f" @{location}" if backend == "vertex" else ""
             rep.add("models", f"{backend}:{model}", "ok" if hit else "warn",
                     f"{kind}{where}" if hit else f"not exposed{where}")
+
+
+def check_ml(rep):
+    """SAM 2 is an opt-in extra (bootstrap --with-ml), so absence is a note,
+    never a failure. Asked of the venv's interpreter, not this one: doctor is
+    often run with the system python3, which never has torch."""
+    py = REPO_ROOT / ".venv/bin/python"
+    if not py.exists():
+        return rep.add("ml", "SAM 2", "skip", "no .venv yet")
+    probe = ("import importlib.util as u, sys; "
+             "sys.exit(0 if all(u.find_spec(m) for m in "
+             "('torch', 'torchvision', 'transformers')) else 1)")
+    try:
+        have = subprocess.run([str(py), "-c", probe], timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        have = False
+    rep.add("ml", "SAM 2", "ok" if have else "skip",
+            "torch + transformers — segment.py --refine sam2, video tracking"
+            if have else "not installed — bootstrap.sh --with-ml to enable "
+                         "segment.py --refine sam2")
 
 
 def check_resolve(rep):
@@ -523,6 +568,7 @@ def main():
     check_tools(rep)
     check_bridges(rep, args.quick)
     check_credentials(rep)
+    check_ml(rep)
     check_resolve(rep)
     check_mcp(rep)
     check_skills(rep)

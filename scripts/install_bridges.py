@@ -71,6 +71,22 @@ SOUNDFONT_URL = (
 SOUNDFONT_PATH = REPO_ROOT / "assets/soundfonts/FluidR3Mono_GM.sf3"
 
 
+# A macOS app bundle finds its own plug-ins relative to the path it was started
+# from. Through a symlink in ~/.local/bin, GIMP 3.2 finds none, prints "No batch
+# interpreters are available" and then waits forever for a quit that never
+# comes. Bundle binaries therefore get an exec wrapper, which keeps the path.
+WRAPPER_MARK = "# creative-stack bridge"
+
+
+def wrapper_text(target):
+    return f'#!/bin/sh\n{WRAPPER_MARK}\nexec "{target}" "$@"\n'
+
+
+def is_ours(path):
+    return (path.is_file() and not path.is_symlink()
+            and WRAPPER_MARK.encode() in path.read_bytes()[:200])
+
+
 def link_bridges(check_only):
     print("\n▸ Headless app bridges")
     BIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,11 +99,16 @@ def link_bridges(check_only):
             continue
 
         link = BIN_DIR / name
+        wrap = ".app/Contents/MacOS/" in str(target)
+        if wrap and is_ours(link) and link.read_text() == wrapper_text(target):
+            ok(f"{name} -> {target} (wrapper)")
+            linked += 1
+            continue
         if target == link or target.resolve() == link:
             ok(f"{name} already on PATH at {target}")
             linked += 1
             continue
-        if link.is_symlink() and link.resolve() == target.resolve():
+        if not wrap and link.is_symlink() and link.resolve() == target.resolve():
             ok(f"{name} -> {target}")
             linked += 1
             continue
@@ -97,14 +118,18 @@ def link_bridges(check_only):
             continue
 
         # Replace a stale link, but never clobber a real file we did not create.
-        if link.is_symlink():
+        if link.is_symlink() or is_ours(link):
             link.unlink()
         elif link.exists():
             warn(f"{name}: {link} exists and is not a symlink — leaving it alone")
             continue
 
-        link.symlink_to(target)
-        ok(f"{name} -> {target}")
+        if wrap:
+            link.write_text(wrapper_text(target))
+            link.chmod(0o755)
+        else:
+            link.symlink_to(target)
+        ok(f"{name} -> {target}" + (" (wrapper)" if wrap else ""))
         linked += 1
 
     if str(BIN_DIR) not in os.environ.get("PATH", ""):

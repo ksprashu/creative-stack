@@ -379,14 +379,25 @@ def install_native(names):
         print(f"    {DIM}$ {' '.join(cmd)}{RESET}")
         return subprocess.run(cmd, env=env, timeout=3600).returncode == 0
     if hostenv.FAMILY == "macos":
-        return run(["brew", "install", *names])
+        return run(["brew", "install", *names], env=BREW_ENV)
     return False
 
 
-def install_cask(names):
+# Homebrew 7 asks "Would install … [y/N]" before every install. Under a TTY
+# that stalls the run; without one it is a prompt nobody can answer.
+BREW_ENV = dict(os.environ, HOMEBREW_NO_ASK="1")
+
+# A cask marked `heavy` (MacTeX is ~6GB) installs alone and gets this long:
+# inside the batch it once ran the whole batch past the one-hour timeout,
+# which then threw away eight finished downloads with it.
+HEAVY_TIMEOUT = 4 * 3600
+
+
+def install_cask(names, timeout=3600):
     # --adopt takes ownership of an app installed outside brew instead of
     # erroring or clobbering it. Most of these were already on the machine.
-    return run(["brew", "install", "--cask", "--adopt", *names])
+    return run(["brew", "install", "--cask", "--adopt", *names],
+               timeout=timeout, env=BREW_ENV)
 
 
 def install_aur(names):
@@ -476,6 +487,13 @@ def install_npm(names):
     if "not covered by allowScripts" in output:
         warn("npm blocked install scripts not in the manifest's"
              " npm_allow_scripts — add them there if a tool below is missing")
+    # A global install is one transaction: a single failing postinstall rolls
+    # back every package in the call, so opencode-ai's broken platform binary
+    # used to take mermaid-cli down with it. Retry one at a time so a bad
+    # package costs only itself.
+    if done.returncode != 0 and len(names) > 1:
+        warn("npm batch failed — retrying each package on its own")
+        return all([install_npm([n]) for n in names])
     return done.returncode == 0
 
 
@@ -645,6 +663,8 @@ INSTALLERS = {
     "npm": install_npm, "uv": install_uv, "cargo": install_cargo,
     "go": install_go, "source": install_source,
     "font-release": install_font_release,
+    # Last, one at a time: nothing small waits behind a 6GB download.
+    "heavy-cask": lambda names: install_cask(names, timeout=HEAVY_TIMEOUT),
 }
 
 
@@ -682,13 +702,15 @@ def do_install(rows):
             manual.append((pkg, payload, reason))
         elif method == "skip":
             skipped.append((pkg, reason))
+        elif method == "cask" and pkg.get("heavy"):
+            batches.setdefault("heavy-cask", []).append((pkg, payload))
         else:
             batches.setdefault(method, []).append((pkg, payload))
 
     results = {}
     # Order matters: `native` brings the toolchains the others are installed with.
     for method in ("native", "cask", "aur", "npm", "uv", "cargo", "go",
-                   "source", "font-release"):
+                   "source", "font-release", "heavy-cask"):
         items = batches.get(method)
         if not items:
             continue

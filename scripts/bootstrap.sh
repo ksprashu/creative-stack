@@ -19,6 +19,7 @@
 #   bash scripts/bootstrap.sh                  # full install
 #   bash scripts/bootstrap.sh --headless       # no desktop apps (servers, CI)
 #   bash scripts/bootstrap.sh --skip-heavy     # no LaTeX / Blender / Resolve
+#   bash scripts/bootstrap.sh --with-ml        # + torch for SAM 2 (~1GB)
 #   bash scripts/bootstrap.sh --skip-packages  # everything except the long run
 #   bash scripts/bootstrap.sh --doctor         # verify only, change nothing
 #   bash scripts/bootstrap.sh --yes            # never prompt (CI / cloud-init)
@@ -39,6 +40,7 @@ export CREATIVE_STACK_ROOT="$REPO_ROOT"
 PROFILE=full
 SKIP_PACKAGES=0
 SKIP_HEAVY=0
+WITH_ML=0
 DOCTOR_ONLY=0
 ASSUME_YES=0
 for arg in "$@"; do
@@ -46,9 +48,10 @@ for arg in "$@"; do
     --headless)      PROFILE=headless ;;
     --skip-packages|--skip-brew) SKIP_PACKAGES=1 ;;
     --skip-heavy)    SKIP_HEAVY=1 ;;
+    --with-ml)       WITH_ML=1 ;;
     --doctor)        DOCTOR_ONLY=1 ;;
     --yes|-y)        ASSUME_YES=1 ;;
-    -h|--help)       sed -n '17,31p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)       sed -n '17,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "❌ Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -102,6 +105,21 @@ if [ "$FAMILY" != macos ] && [ "$(id -u)" -ne 0 ]; then
   ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
   SUDO_KEEPALIVE=$!
   trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
+elif [ "$FAMILY" = macos ] && [ "$PROFILE" != headless ] && ! sudo -n true 2>/dev/null; then
+  # Homebrew itself never needs root, but .pkg casks (MacTeX) call sudo
+  # mid-install — an hour in, on a prompt nobody is watching. Ask now, or
+  # say up front which casks will fail when nobody can answer.
+  if [ -t 0 ] && [ "$ASSUME_YES" -ne 1 ]; then
+    say "Elevating once — .pkg casks (MacTeX) need it mid-install"
+    sudo -v && {
+      ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+      SUDO_KEEPALIVE=$!
+      trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
+    }
+  else
+    warn "no terminal for a sudo prompt — .pkg casks (MacTeX) will fail;" \
+         "rerun them in Terminal: brew install --cask --yes mactex-no-gui"
+  fi
 fi
 
 # --------------------------------------------------- 0. package manager etc ---
@@ -262,6 +280,13 @@ fi
 say "2/7 Python environment"
 [ -d "$VENV" ] || uv venv "$VENV" --python 3.13
 uv pip install --python "$VENV/bin/python" -r "$REPO_ROOT/requirements.txt"
+# Opt-in, not --skip-heavy's inverse: torch is a gigabyte that only
+# `segment.py --refine sam2` and video tracking use, and Gemini's own masks
+# work without it.
+if [ "$WITH_ML" -eq 1 ]; then
+  uv pip install --python "$VENV/bin/python" -r "$REPO_ROOT/requirements-ml.txt" || \
+    warn "ML extras did not install — segment.py works without --refine sam2"
+fi
 
 # Playwright needs its own OS libraries on Linux; --with-deps installs them.
 if [ "$FAMILY" = macos ]; then
