@@ -43,7 +43,6 @@
   ],
   "npm_allow_scripts": [
     "@anthropic-ai/claude-code",
-    "opencode-ai",
     "node-pty",
     "@github/keytar",
     "puppeteer"
@@ -1286,21 +1285,6 @@
           },
           "optional": true,
           "note": "Gemini CLI \u2014 reads ~/.gemini/skills."
-        },
-        {
-          "id": "opencode",
-          "provides": [
-            "opencode"
-          ],
-          "brew": null,
-          "arch": null,
-          "debian": null,
-          "fallback": {
-            "kind": "npm",
-            "name": "opencode-ai"
-          },
-          "optional": true,
-          "note": "opencode \u2014 reads ~/.claude/skills and ~/.agents/skills."
         }
       ]
     }

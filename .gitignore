@@ -4,7 +4,6 @@
 # these on every machine, so the script is what gets committed, not its output.
 .gemini/settings.json
 .cursor/mcp.json
-opencode.json
 out/
 templates/deck/.generated/
 assets/soundfonts/

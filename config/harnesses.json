@@ -21,7 +21,7 @@
     "  mcp.scope    'project' writes inside this repo, which is how a server",
     "               stays opt-in. 'user' is global and is therefore never",
     "               written automatically — install_mcp.py prints the command.",
-    "  mcp.format   mcpServers | opencode | codex-toml — the three shapes the",
+    "  mcp.format   mcpServers | codex-toml — the two shapes the",
     "               ecosystem has converged on, and they are not compatible.",
     "  mcp.portable true only where ${HOME} expansion in the config is a",
     "               documented, verified feature. Everyone else gets a real",
@@ -100,7 +100,7 @@
       "always": true,
       "_always_note": [
         "The one directory created whether or not anything is detected. It is",
-        "the vendor-neutral location Codex and opencode both document, so on a",
+        "the vendor-neutral location Codex documents, so on a",
         "freshly imaged box — where no harness config exists yet — the skills",
         "are already waiting when the first agent CLI starts. Every other",
         "harness has to be present before we write into its home."
@@ -109,22 +109,6 @@
       "registry": ["~/.agents/skills.json"]
     },
 
-    "opencode": {
-      "label": "opencode",
-      "detect": ["~/.config/opencode"],
-      "skills_dirs": [],
-      "covered_by": ["claude-code", "agents-hub"],
-      "_skills_note": [
-        "opencode reads ~/.config/opencode/skills, ~/.claude/skills and",
-        "~/.agents/skills. We populate the last two, so linking into the first",
-        "as well would show every skill three times in its picker."
-      ],
-      "mcp": {
-        "scope": "project",
-        "path": "opencode.json",
-        "format": "opencode"
-      }
-    },
 
     "cursor": {
       "label": "Cursor",
