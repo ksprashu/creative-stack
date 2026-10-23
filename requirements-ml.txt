@@ -1,0 +1,14 @@
+# Creative Stack — optional ML dependencies (~1GB). Not installed by default.
+#
+# Only `/raster segment.py --refine sam2` needs these: box-prompted SAM 2
+# refinement of Gemini's selection masks. Everything else in the stack runs
+# without torch. Install into the stack's venv with:
+#
+#   uv pip install --python .venv/bin/python -r requirements-ml.txt
+#
+# Weights download on first use from Hugging Face (facebook/sam2.1-hiera-*,
+# Apache-2.0). Ultralytics/YOLO is deliberately absent: it is AGPL-3.0.
+
+torch>=2.5
+torchvision>=0.20         # Sam2ImageProcessor will not load without it
+transformers>=4.56          # Sam2Model / Sam2Processor landed in 4.56

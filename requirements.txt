@@ -7,7 +7,7 @@ google-cloud-texttospeech>=2.27 # Chirp 3 HD voices (voice.py --engine chirp)
 
 # --- imaging -----------------------------------------------------------------
 Pillow>=11.0
-rembg[cli]>=2.0              # background removal (ONNX, runs local)
+rembg[cpu,cli]>=2.0.60        # background removal (ONNX, local). [cli] alone ships no onnxruntime
 numpy>=1.26
 
 # --- video / timeline --------------------------------------------------------
