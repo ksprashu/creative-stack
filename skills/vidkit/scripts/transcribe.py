@@ -37,9 +37,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import hostenv  # noqa: E402
+# vidlib first: importing it is what puts scripts/ on sys.path, so hostenv
+# above it fails whenever this runs standalone rather than from a harness.
 from vidlib import (CACHE, clamp_cues, die, ffmpeg, hms, need, parse_srt, probe,
                     run, write_srt, write_vtt)
+import hostenv  # noqa: E402
 
 # whisper.cpp GGML weights. Bigger is slower but markedly better on accented
 # speech and technical terms; small.en is the sweet spot for published captions.
@@ -124,7 +126,10 @@ def main():
         cmd = [whisper, "-m", str(model), "-f", str(wav),
                "-of", str(out_prefix), "-l", args.language,
                "-t", str(args.threads),
-               "-osrt", "-ovtt", "-otxt", "-oj",
+               # -ojf, not -oj: the full JSON adds per-token timings, which
+               # captions.py --style karaoke|highlight needs to land each word
+               # exactly. It is a superset, so every -oj reader still works.
+               "-osrt", "-ovtt", "-otxt", "-ojf",
                "-sow",          # split captions on word boundaries, not tokens
                "-np"]           # suppress the ggml backend banner
         if args.max_len:

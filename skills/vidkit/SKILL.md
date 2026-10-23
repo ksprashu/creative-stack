@@ -41,6 +41,21 @@ in the frame, and the motion detector will happily push in on them.
    If it removed too much, the knob is `--threshold` (lower dB = less aggressive), then
    `--padding`.
 
+   **Optionally, let Gemini propose the edit first.** Silence detection cannot see a false
+   start, a retake or two minutes watching a build spinner; Gemini watching a small proxy
+   (640px, 4fps — this step *does* upload) can. It writes `analysis.json` with chapters,
+   highlights, cuts with a reason each, b-roll ideas carrying ready `/artgen` prompts, and a
+   title and description. Review it — delete any cut you disagree with — then hand it on:
+   ```bash
+   python3 scripts/analyze.py -i raw.mov -o out/analysis.json --transcript out/talk.json \
+     --notes "audience: platform engineers; keep the IAM detour"
+   python3 scripts/autocut.py -i raw.mov -o out/cut.json --analysis out/analysis.json \
+     --render out/cut.mp4 --srt out/talk.srt --srt-out out/cut.srt
+   ```
+   autocut removes the analysis cuts *on top of* the silences, and writes
+   `out/cut.chapters.txt` — the chapters moved onto the cut timeline — for steps 5 and 6.
+   Over 20MB of proxy on Vertex needs `--gcs-uri gs://…`; AI Studio uploads it itself.
+
 3. **Push in on the action** — optional, but it is what makes a 4K capture legible at blog width:
    ```bash
    python3 scripts/zoom.py -i out/cut.mp4 --auto --spec-out out/zoom.yaml   # review
@@ -52,6 +67,28 @@ in the frame, and the motion detector will happily push in on them.
    python3 scripts/captions.py -i out/zoomed.mp4 -s out/cut.srt -o out/captioned.mp4 --style pill
    python3 scripts/captions.py -i out/zoomed.mp4 -s out/cut.srt -o out/yt.mp4 --soft
    ```
+   For shorts and social cuts, animate them word by word — still one libass pass, seconds
+   not minutes. `highlight` lights the current word; `karaoke` sweeps the accent through the
+   line. `--words` takes whisper's full JSON (`whisper-cli … -ojf`) for exact timing; without
+   it, or once autocut has moved the timeline, each cue is shared across its words by length:
+   ```bash
+   python3 scripts/captions.py -i out/zoomed.mp4 -s out/cut.srt -o out/short.mp4 --style highlight
+   ```
+
+   **Motion graphics** — title cards, lower thirds, end cards — are HTML/CSS templates in
+   `templates/motion/`, rendered frame-exact by headless Chromium and encoded by ffmpeg.
+   Every render writes `<name>.motion.json` first; edit it and re-render with `--spec`:
+   ```bash
+   python3 scripts/motion.py -t title -o out/title.mp4 \
+     -p kicker="Cloud Run" -p title="Deploy in 90 seconds" -p subtitle="No Dockerfile"
+   python3 scripts/motion.py -t lower-third --overlay-on out/captioned.mp4 --at 4 \
+     -o out/with-lt.mp4 -p name="Ada Lovelace" -p role="Developer Advocate"
+   python3 scripts/motion.py -t end-card -o out/end.mp4 \
+     -p title="Thanks for watching" -p url="cloud.google.com/run"
+   python3 scripts/motion.py -t lower-third --alpha -o out/lt.mov -p name="Ada"  # for Resolve
+   ```
+   `.mov --alpha` is ProRes 4444 for an NLE, `.webm --alpha` is VP9 with alpha for the web.
+   A new template is any HTML file there that links `motion.css` and `motion.js`.
 
 5. **Publish** — loudness, chapters, ladder, poster:
    ```bash
@@ -121,6 +158,21 @@ python3 ../shot/scripts/frame.py -i out/publish/cloudrun-walkthrough-poster.png 
     picks its parser from the extension and rejects the mismatch. Use `.xml`.
 *   **NEVER** publish without the loudness pass. A video that lands at −20 LUFS next to one at
     −14 reads as an audio fault, not a stylistic choice.
+*   **NEVER** pass `analysis.chapters.txt` to `timeline.py` or `publish.py` after a cut. Gemini
+    timestamps the *source*; once autocut has shortened it every chapter lands late, by however
+    much was cut before it. Use the `cut.chapters.txt` autocut writes alongside `cut.json`.
+*   **NEVER** run `autocut.py --analysis` without reading the cuts first. The model is told to
+    be conservative, but a "retake" it removes may be the only take of that step — each cut
+    carries a `reason` precisely so a human can veto it in seconds.
+*   **NEVER** play a motion template in real time to capture it. Screenshots taken against a
+    running clock drop and double frames whenever a frame takes longer than 1/fps to paint;
+    `motion.py` pauses every animation and seeks it per frame. A template that animates from
+    script must expose `window.seek(t)` instead of using `requestAnimationFrame` timing.
+*   **NEVER** animate a `transform` on a wrapper that is not itself `position:absolute;
+    inset:0`. A transform makes the element the containing block for its absolutely
+    positioned children, so a zero-height wrapper drags them off-screen — the lower third
+    rendered as an empty, perfectly valid ProRes file until its `.exit` wrapper was fixed.
+    Extract a frame and look at it before trusting a render.
 *   **NEVER** re-transcribe to fix a wrong word — edit the `.srt` and re-run from step 2.
     The transcript is a source file, not an intermediate.
 *   **NEVER** trust an auto-cut on a recording with long deliberate pauses (a demo waiting on a

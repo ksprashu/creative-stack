@@ -34,6 +34,7 @@ Tuning, in the order worth reaching for:
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -41,7 +42,7 @@ import tempfile
 from pathlib import Path
 
 from vidlib import (die, ffmpeg, filter_script_args, hms, need, parse_srt,
-                    probe, run, write_segments, write_srt)
+                    probe, run, write_chapters, write_segments, write_srt)
 
 SILENCE_START = re.compile(r"silence_start:\s*(-?[\d.]+)")
 SILENCE_END = re.compile(r"silence_end:\s*(-?[\d.]+)")
@@ -97,6 +98,23 @@ def keep_segments(silences, duration, padding, min_clip):
             merged.append(segment)
 
     return [(s, e) for s, e in merged if e - s >= min_clip]
+
+
+def subtract(segments, cuts, min_clip):
+    """Remove analysis.json's cut spans from the kept segments.
+
+    Applied after silence removal, so Gemini only has to find what silence
+    detection cannot — false starts, retakes, dead waits with a fan running.
+    """
+    out = []
+    for start, end in segments:
+        pieces = [(start, end)]
+        for cut_start, cut_end in cuts:
+            pieces = [p for s, e in pieces for p in
+                      ((s, min(e, cut_start)), (max(s, cut_end), e))
+                      if p[1] - p[0] > 0]
+        out += [(s, e) for s, e in pieces if e - s >= min_clip]
+    return out
 
 
 def remap(segments):
@@ -197,6 +215,8 @@ def main():
                     help="seconds of air kept on each side of speech")
     ap.add_argument("--min-clip", type=float, default=0.3,
                     help="drop kept segments shorter than this")
+    ap.add_argument("--analysis", help="analysis.json from analyze.py — its "
+                    "cuts are removed on top of the silences")
     args = ap.parse_args()
 
     source = Path(args.input)
@@ -212,6 +232,15 @@ def main():
           f"{meta['width']}x{meta['height']} @ {meta['fps']:g}fps)")
     silences = detect_silence(source, args.threshold, args.min_silence)
     segments = keep_segments(silences, meta["duration"], args.padding, args.min_clip)
+    cuts, analysis = [], None
+    if args.analysis:
+        analysis = json.loads(Path(args.analysis).read_text())
+        if Path(analysis.get("source", "")).resolve() != source.resolve():
+            print(f"⚠️  {args.analysis} was made from {analysis.get('source')}, "
+                  f"not {source} — its times may not line up.")
+        cuts = [(c["start"], c["end"]) for c in analysis.get("cuts", [])]
+        segments = subtract(segments, cuts, args.min_clip)
+        print(f"✂️  applied {len(cuts)} cuts from {args.analysis}")
 
     if not segments:
         die(f"everything was below {args.threshold}dB — the whole recording "
@@ -225,11 +254,27 @@ def main():
         "tool": "autocut",
         "threshold_db": args.threshold,
         "padding": args.padding,
+        "analysis": str(Path(args.analysis).resolve()) if args.analysis else None,
+        "analysis_cuts": len(cuts),
         "kept": round(kept, 3),
         "removed": round(removed, 3),
     })
     print(f"✓ {args.output}  ({len(segments)} segments, "
           f"{hms(kept)} kept, {hms(removed)} removed — {percent:.0f}% shorter)")
+
+    if analysis and analysis.get("chapters"):
+        # analyze.py speaks source time; timeline.py and publish.py read the
+        # cut timeline. A chapter whose start was cut lands where its content
+        # resumes; two that collapse onto the same second keep the first.
+        fn, seen, moved = remap(segments), set(), []
+        for chapter in analysis["chapters"]:
+            at = fn(chapter["start"])
+            if at is not None and int(at) not in seen:
+                seen.add(int(at))
+                moved.append({"start": at, "title": chapter["title"]})
+        chapters_out = Path(args.output).with_suffix(".chapters.txt")
+        write_chapters(chapters_out, moved)
+        print(f"✓ {chapters_out}  ({len(moved)} chapters on the cut timeline)")
 
     if args.srt:
         cues = remap_cues(parse_srt(args.srt), segments)

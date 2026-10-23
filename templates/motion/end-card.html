@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!-- Copyright 2026 Creative Stack Contributors. Licensed under Apache-2.0. -->
+<!-- Logo sting / end card. Params: logo (image data URI), title, cta, url.
+     With no logo the brand's four colours assemble into a mark instead. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="motion.css">
+<script src="motion.js"></script>
+<style>
+  body { background: radial-gradient(120% 120% at 50% 40%, var(--surface) 0%, var(--bg) 70%); }
+  html.alpha body { background: transparent; }
+
+  .stage {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--on-bg); text-align: center;
+  }
+
+  /* Fallback mark: four brand dots fly in, then settle into a 2x2. */
+  .dots {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: calc(22 * var(--u));
+    animation: spin-in 1.1s cubic-bezier(.2, .9, .25, 1.15) .1s both;
+  }
+  .dot { width: calc(78 * var(--u)); height: calc(78 * var(--u)); border-radius: 50%;
+         animation: pop .7s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .dot:nth-child(1) { background: var(--brand-1); animation-delay: .15s; }
+  .dot:nth-child(2) { background: var(--brand-2); animation-delay: .25s; }
+  .dot:nth-child(3) { background: var(--brand-3); animation-delay: .35s; }
+  .dot:nth-child(4) { background: var(--brand-4); animation-delay: .45s; }
+  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+  @keyframes spin-in { from { transform: rotate(-90deg) scale(.6); } to { transform: none; } }
+
+  .logo {
+    max-width: calc(520 * var(--u)); max-height: calc(260 * var(--u));
+    animation: logo-in 1s cubic-bezier(.3, 1.4, .5, 1) .1s both;
+  }
+  @keyframes logo-in { from { opacity: 0; transform: scale(.7); filter: blur(calc(16 * var(--u))); }
+                       to { opacity: 1; transform: none; filter: none; } }
+
+  .title {
+    font: 700 calc(84 * var(--u)) / 1.08 var(--font-display);
+    letter-spacing: -.02em; max-width: 18ch;
+    margin-top: calc(56 * var(--u));
+    animation: rise .9s cubic-bezier(.2, .8, .2, 1) .75s both;
+  }
+  .cta {
+    font: 500 calc(36 * var(--u)) / 1.3 var(--font-body);
+    color: var(--muted); margin-top: calc(20 * var(--u));
+    animation: rise .9s cubic-bezier(.2, .8, .2, 1) .95s both;
+  }
+  .url {
+    display: inline-block;
+    font: 500 calc(32 * var(--u)) / 1 var(--font-mono);
+    color: var(--on-accent); background: var(--accent);
+    padding: calc(16 * var(--u)) calc(30 * var(--u));
+    border-radius: calc(999 * var(--u));
+    margin-top: calc(44 * var(--u));
+    animation: rise .9s cubic-bezier(.2, .8, .2, 1) 1.15s both;
+  }
+</style>
+</head>
+<body>
+  <div class="exit" style="position:absolute;inset:0">
+    <div class="stage">
+      <img class="logo" data-param="logo" alt="">
+      <div class="dots" data-unless="logo">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+      <div class="title" data-param="title"></div>
+      <div class="cta" data-param="cta"></div>
+      <div class="url" data-param="url"></div>
+    </div>
+  </div>
+</body>
+</html>
