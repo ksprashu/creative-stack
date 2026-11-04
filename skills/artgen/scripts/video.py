@@ -29,6 +29,7 @@ four. The poll loop prints elapsed time so a stall is visibly a stall.
 
 import argparse
 import base64
+import contextlib
 import subprocess
 import sys
 import time
@@ -91,15 +92,50 @@ def omni_call(args, prompt, client, model):
         parts.insert(0, {"type": "image",
                          "data": base64.b64encode(Path(args.image).read_bytes()).decode(),
                          "mime_type": _mime_ok(args.image)})
+    # Inline delivery caps out at 4MB, which an 8s 1080p clip passes, so on
+    # AI Studio ask for a Files API uri instead. Vertex has no Files API and
+    # stays inline; a uri coming back from it anyway is handled below.
+    response_format = {"type": "video", "aspect_ratio": args.ar,
+                       "resolution": args.resolution}
+    if not client.vertexai:
+        response_format["delivery"] = "uri"
     interaction = client.interactions.create(
         model=model, input=parts, timeout=args.timeout,
-        response_format={"type": "video", "aspect_ratio": args.ar,
-                         "resolution": args.resolution})
+        response_format=response_format)
     video = getattr(interaction, "output_video", None)
-    if video is None or not video.data:
+    if video is None:
         return None
-    data = video.data
-    return base64.b64decode(data) if isinstance(data, str) else data
+    if getattr(video, "data", None):
+        data = video.data
+        return base64.b64decode(data) if isinstance(data, str) else data
+    uri = getattr(video, "uri", None)
+    if not uri:
+        return None
+    if client.vertexai:
+        G.warn(f"{model} returned {uri} rather than bytes — not fetched")
+        return None
+    return fetch_file(client, uri, args.timeout)
+
+
+def fetch_file(client, uri, timeout):
+    """Wait for a Files API video to go ACTIVE, download it, then delete it."""
+    name = f"files/{uri.rstrip('/').split('/')[-1].split(':')[0]}"
+    started = time.time()
+    try:
+        while True:
+            state = client.files.get(name=name).state.name
+            if state == "ACTIVE":
+                return client.files.download(file=uri)
+            if state == "FAILED":
+                G.warn(f"{name} failed processing")
+                return None
+            if time.time() - started > timeout:
+                G.warn(f"{name} still {state} after {timeout}s — giving up")
+                return None
+            time.sleep(POLL_SECONDS / 2)
+    finally:
+        with contextlib.suppress(Exception):    # files expire in 48h anyway
+            client.files.delete(name=name)
 
 
 def strip_audio(path):

@@ -36,9 +36,11 @@ analysis.chapters.txt is in source time — right for the uncut recording, wrong
 for anything autocut has shortened.
 
 Transport: the proxy (640px, 4fps, mono 32kbps) is sent inline when it is under
-20MB, which covers well over an hour of screen recording. Larger proxies go
-through the Files API on AI Studio; Vertex has no Files API, so there pass
---gcs-uri with a copy of the recording in Cloud Storage.
+20MB. The proxy runs at roughly 25-130kbps depending on how much the screen
+moves, so that is anywhere from twenty minutes to a couple of hours. Larger
+proxies go through the Files API on AI Studio, uploaded once and deleted when
+the analysis is back; Vertex has no Files API, so there pass --gcs-uri with a
+copy of the recording in Cloud Storage.
 """
 
 import argparse
@@ -140,7 +142,8 @@ def transcript_text(path):
                      for c in cues if c["text"].strip())
 
 
-def video_part(types, client, proxy, gcs_uri):
+def video_part(types, client, proxy, gcs_uri, uploads):
+    """The video as a request part. Files API uploads land in `uploads`."""
     if gcs_uri:
         return types.Part.from_uri(file_uri=gcs_uri, mime_type="video/mp4")
     size = proxy.stat().st_size
@@ -151,7 +154,10 @@ def video_part(types, client, proxy, gcs_uri):
             "inline limit, and Vertex has no Files API. Upload the recording and "
             "pass it in:\n  gcloud storage cp RECORDING gs://BUCKET/rec.mp4\n"
             "  analyze.py ... --gcs-uri gs://BUCKET/rec.mp4")
+    if id(client) in uploads:                # a retry on the same backend
+        return uploads[id(client)][1]
     uploaded = client.files.upload(file=str(proxy))
+    uploads[id(client)] = (client, uploaded)
     while uploaded.state and uploaded.state.name == "PROCESSING":
         time.sleep(3)
         uploaded = client.files.get(name=uploaded.name)
@@ -241,16 +247,27 @@ def main():
             proxy = make_proxy(source, Path(tmp) / "proxy.mp4")
             print(f"  {G.DIM}{proxy.stat().st_size // 1024}KB{G.RESET}")
 
+        uploads = {}
+
         def call(client, model):
-            part = video_part(types, client, proxy, args.gcs_uri)
+            part = video_part(types, client, proxy, args.gcs_uri, uploads)
             response = client.models.generate_content(
                 model=model, contents=[part, prompt], config=config)
             return response.text or None
 
         print("🧠 watching …")
         started = time.time()
-        text, model, backend = G.attempt(
-            G.chain_for(args.model, SEQUENCE), call, prefer=args.backend)
+        try:
+            text, model, backend = G.attempt(
+                G.chain_for(args.model, SEQUENCE), call, prefer=args.backend)
+        finally:
+            # Files expire after 48h anyway; a recording of internal screens
+            # should not sit there that long.
+            for client, uploaded in uploads.values():
+                try:
+                    client.files.delete(name=uploaded.name)
+                except Exception as exc:  # noqa: BLE001
+                    G.warn(f"could not delete {uploaded.name}: {exc}")
 
     try:
         raw = json.loads(text)

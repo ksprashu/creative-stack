@@ -487,13 +487,9 @@ def install_npm(names):
     if "not covered by allowScripts" in output:
         warn("npm blocked install scripts not in the manifest's"
              " npm_allow_scripts — add them there if a tool below is missing")
-    # A global install is one transaction: a single failing postinstall rolls
-    # back every package in the call, so opencode-ai's broken platform binary
-    # used to take mermaid-cli down with it. Retry one at a time so a bad
-    # package costs only itself.
-    if done.returncode != 0 and len(names) > 1:
-        warn("npm batch failed — retrying each package on its own")
-        return all([install_npm([n]) for n in names])
+    # A global install is one transaction: one failing postinstall rolls back
+    # every package in the call. do_install's batch-then-individually retry
+    # is what keeps a bad package from costing the rest, so none here.
     return done.returncode == 0
 
 

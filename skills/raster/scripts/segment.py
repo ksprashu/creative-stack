@@ -48,6 +48,7 @@ import io
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -71,6 +72,10 @@ OPS = ("blur", "pixelate", "fill", "erase")
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 # SAM 2 works at 1024px internally; decoding larger only costs memory.
 TRACK_MAX_SIDE = 1024
+# A SAM 2 session holds every frame it is given as float32 at 1024², about
+# 12MB each, so a minute of 30fps footage in one session wants 20GB+. Tracking
+# runs in sessions of this many frames, each seeded from where the last ended.
+TRACK_CHUNK = 120
 
 # Gemini sees a downscaled copy. Coordinates come back normalised to 0-1000,
 # so the resolution sent changes cost and latency, not where the mask lands.
@@ -227,17 +232,6 @@ def boxy(args):
     return args.shape == "box" or (args.shape == "auto" and args.op in HIDING_OPS)
 
 
-def to_box(mask):
-    """The mask's bounding rectangle, filled — the video path's `boxy` shape."""
-    from PIL import ImageDraw                            # noqa: PLC0415
-
-    bbox = mask.getbbox()
-    if bbox:
-        mask = mask.point(lambda _: 0)
-        ImageDraw.Draw(mask).rectangle(bbox, fill=255)
-    return mask
-
-
 def union(masks, size):
     from PIL import Image, ImageChops                    # noqa: PLC0415
     out = Image.new("L", size, 0)
@@ -303,21 +297,31 @@ def video_meta(path):
     return stream["width"], stream["height"], float(num) / float(den or 1)
 
 
-def decode(path, size):
-    """Every frame of `path` as an (N, H, W, 3) uint8 array at `size`."""
+def decode(path, size, scratch):
+    """Every frame of `path` as an (N, H, W, 3) uint8 array at `size`.
+
+    The frames go to a raw file under `scratch` and come back memory-mapped,
+    so a long clip costs disk rather than RAM.
+    """
     import numpy as np                                   # noqa: PLC0415
     ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg")
     w, h = size
-    raw = subprocess.run(
-        [ffmpeg, "-v", "error", "-i", str(path), "-vf", f"scale={w}:{h}",
-         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
-    if raw.returncode != 0:
-        R.die(f"decode failed: {raw.stderr.decode()[-200:]}")
-    return np.frombuffer(raw.stdout, np.uint8).reshape(-1, h, w, 3)
+    raw = Path(scratch) / "frames.rgb"
+    run = subprocess.run(
+        [ffmpeg, "-v", "error", "-y", "-i", str(path), "-vf", f"scale={w}:{h}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", str(raw)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if run.returncode != 0 or not raw.stat().st_size:
+        R.die(f"decode failed: {run.stderr.decode()[-200:]}")
+    return np.memmap(raw, np.uint8, "r").reshape(-1, h, w, 3)
 
 
-def track(frames, items, at_frame, size_name):
-    """Per-frame boolean masks (N, H, W) at the decode size, SAM 2 tracked."""
+def track(frames, items, at_frame, size_name, boxes):
+    """Per-frame boolean masks (N, H, W) at the decode size, SAM 2 tracked.
+
+    With `boxes`, each object is drawn as its own filled rectangle, so two
+    faces in opposite corners hide two faces, not the frame between them.
+    """
     try:
         import numpy as np                               # noqa: PLC0415
         import torch                                     # noqa: PLC0415
@@ -331,29 +335,60 @@ def track(frames, items, at_frame, size_name):
     model = Sam2VideoModel.from_pretrained(repo).to(device)
 
     n, h, w, _ = frames.shape
-    session = processor.init_video_session(
-        video=list(frames), inference_device=device,
-        video_storage_device="cpu", dtype=torch.float32)
-    ids = list(range(1, len(items) + 1))
-    processor.add_inputs_to_inference_session(
-        inference_session=session, frame_idx=at_frame, obj_ids=ids,
-        input_boxes=[[list(box_px(i["box_2d"], (w, h))) for i in items]])
-
     masks = np.zeros((n, h, w), bool)
 
-    def collect(out):
-        res = processor.post_process_masks(
-            [out.pred_masks], original_sizes=[[h, w]], binarize=False)[0]
-        masks[out.frame_idx] = (res > 0).any(dim=0).squeeze(0).cpu().numpy()
+    def run(lo, hi, seed_at, seeds, reverse):
+        """Track frames[lo:hi] from local frame `seed_at`.
 
+        Returns each object's box where it was last seen, not only those
+        visible on the final frame: a face that turns away across a session
+        boundary would otherwise go unredacted for the rest of the clip.
+        """
+        session = processor.init_video_session(
+            video=list(frames[lo:hi]), inference_device=device,
+            video_storage_device="cpu", dtype=torch.float32)
+        ids = sorted(seeds)
+        processor.add_inputs_to_inference_session(
+            inference_session=session, frame_idx=seed_at, obj_ids=ids,
+            input_boxes=[[list(seeds[i]) for i in ids]])
+        seen = dict(seeds)
+        model(inference_session=session, frame_idx=seed_at)
+        for out in model.propagate_in_video_iterator(
+                session, start_frame_idx=seed_at, reverse=reverse):
+            res = processor.post_process_masks(
+                [out.pred_masks], original_sizes=[[h, w]], binarize=False)[0]
+            per_object = (res > 0).squeeze(1).cpu().numpy()
+            frame = masks[lo + out.frame_idx]
+            for obj, m in zip(out.object_ids, per_object, strict=True):
+                ys, xs = np.nonzero(m)
+                if not len(xs):
+                    continue
+                seen[obj] = (int(xs.min()), int(ys.min()),
+                             int(xs.max()) + 1, int(ys.max()) + 1)
+                if boxes:
+                    x0, y0, x1, y1 = seen[obj]
+                    frame[y0:y1, x0:x1] = True
+                else:
+                    frame |= m
+        return seen
+
+    initial = {k + 1: box_px(it["box_2d"], (w, h)) for k, it in enumerate(items)}
     with torch.no_grad():
-        model(inference_session=session, frame_idx=at_frame)
-        for out in model.propagate_in_video_iterator(session):
-            collect(out)
-        if at_frame > 0:                                 # and back to the start
-            for out in model.propagate_in_video_iterator(
-                    session, start_frame_idx=at_frame, reverse=True):
-                collect(out)
+        # Forward from the detection frame. Consecutive sessions share a
+        # frame, so each starts exactly where the previous one ended.
+        lo, seeds = at_frame, initial
+        while True:
+            hi = min(n, lo + TRACK_CHUNK)
+            seeds = run(lo, hi, 0, seeds, reverse=False)
+            if hi == n:
+                break
+            lo = hi - 1
+        # And back to the start.
+        hi, seeds = at_frame + 1, initial
+        while hi > 1:
+            lo = max(0, hi - TRACK_CHUNK)
+            seeds = run(lo, hi, hi - lo - 1, seeds, reverse=True)
+            hi = lo + 1
     return masks
 
 
@@ -370,14 +405,15 @@ def process_video(args, src, record):
     small = (max(2, round(width * scale / 2) * 2), max(2, round(height * scale / 2) * 2))
     print(f"◈ decoding {src.name}  {DIM}{width}x{height} @ {fps:.2f}fps,"
           f" tracking at {small[0]}x{small[1]}{RESET}")
-    frames = decode(src, small)
+    scratch = tempfile.TemporaryDirectory(prefix="segment-")
+    frames = decode(src, small, scratch.name)
     at_frame = min(len(frames) - 1, max(0, round(args.at * fps)))
     if record is not None:
         # The boxes describe one particular frame; tracking from any other
         # would start from where the object was, not where it is.
         at_frame = min(len(frames) - 1, int(record.get("frame", at_frame)))
 
-    first_out = Path(args.output or args.mask)
+    first_out = Path(args.output or args.mask or args.json)
     json_path = Path(args.json) if args.json else first_out.with_suffix(".segments.json")
     if record is not None:
         items = record["items"]
@@ -398,10 +434,13 @@ def process_video(args, src, record):
         R.die("nothing matched — try a broader --query or a different --at")
     for n, it in enumerate(items):
         print(f"    {DIM}[{n}] {it.get('label', '?')}  box {it['box_2d']}{RESET}")
+    if not (args.op or args.mask):
+        return 0                                         # --json only: review first
 
     print(f"◈ tracking {len(items)} object(s) through {len(frames)} frames")
-    masks = track(frames, items, at_frame, args.sam_size)
+    masks = track(frames, items, at_frame, args.sam_size, boxes=boxy(args))
     del frames
+    scratch.cleanup()
 
     ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg")
     target = Path(args.output or args.mask)
@@ -425,7 +464,7 @@ def process_video(args, src, record):
         mask = Image.fromarray(masks[i].astype(np.uint8) * 255, "L").resize(
             (width, height), Image.BILINEAR)
         if boxy(args):
-            mask = to_box(mask)
+            mask = mask.point(lambda v: 255 if v else 0)  # no soft box edge
         if args.grow > 0:
             mask = mask.filter(ImageFilter.MaxFilter(args.grow * 2 + 1))
         if args.op:

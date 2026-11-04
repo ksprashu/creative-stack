@@ -217,7 +217,7 @@ Do not re-discover these.
     the only hard failure on an otherwise healthy Ubuntu 24.04.
 *   **A global `npm install` is one transaction.** One failing postinstall (opencode-ai's
     platform binary) rolls back every package named in the same call, so mermaid-cli vanished
-    alongside it. `install_npm` retries each package alone when a batch fails.
+    alongside it. `do_install` retries each package alone when a batch fails.
 *   **`rembg[cli]` installs no inference backend.** Since 2.0.8x onnxruntime lives in the
     `cpu`/`gpu` extras, and without one `cutout.py` dies at import. Hence `rembg[cpu,cli]`.
 *   **Skill scripts must import `vidlib` (or their `*lib`) before `hostenv`.** Importing the

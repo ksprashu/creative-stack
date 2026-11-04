@@ -84,7 +84,7 @@ Neither is required to be present — whichever is configured is the one that ge
    The script is split at paragraphs and `out/voice.plan.json` is written before any audio.
    A mispronounced word or a bad split is an edit to that file and a
    `--from-plan out/voice.plan.json` re-run. A file where every line is `Name: words` with two
-   names becomes a two-voice dialogue. `--list-voices` prints the prebuilt voices.
+   names becomes a two-voice dialogue; `--narration` reads such a file as prose. `--list-voices` prints the prebuilt voices.
 
    `--engine chirp` swaps Gemini TTS for Cloud Text-to-Speech's Chirp 3 HD: the same voice
    names, `--lang` for 40+ locales, and dialogue with any number of speakers. It takes no

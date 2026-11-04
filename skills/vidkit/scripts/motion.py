@@ -62,9 +62,11 @@ from vidlib import REPO_ROOT, die, ffmpeg, hms, need, probe, tokens
 TEMPLATES = REPO_ROOT / "templates/motion"
 DEFAULT_DURATION = {"title": 4.0, "lower-third": 5.0, "end-card": 5.0}
 
-# Pause everything, then seek. Animations are re-collected on every frame
-# because one can start mid-clip (a class added from script, an element
-# un-hidden) and would otherwise play in real time and break determinism.
+# Pause every animation and set it to the clip time. They are collected afresh
+# each frame so one that only exists from partway in (an element un-hidden) is
+# caught too — but it is set to `t` like the rest, i.e. as though it started at
+# page load, so time it with animation-delay. Motion driven from script belongs
+# in window.seek(t), which runs last.
 SEEK_JS = """async (t) => {
   for (const a of document.getAnimations()) { a.pause(); a.currentTime = t * 1000; }
   if (window.seek) await window.seek(t);
@@ -170,6 +172,9 @@ def build_spec(args):
 # JPEG frames decode as full-range yuvj420p, and `-pix_fmt yuv420p` alone keeps
 # that range tag — players that honour it show the title washed out next to
 # the camera footage it is cut against. Squeeze to broadcast range and say so.
+# PNG frames (alpha) are RGB, which ffmpeg would convert with BT.601 and leave
+# untagged; the same filter makes that BT.709 too, so a brand colour matches
+# whether the title is rendered opaque or overlaid.
 RANGE_ARGS = ["-vf", "scale=out_range=tv:out_color_matrix=bt709",
               "-color_range", "tv", "-colorspace", "bt709",
               "-color_primaries", "bt709", "-color_trc", "bt709"]
@@ -218,12 +223,14 @@ def render(spec, output):
     cmd = [need("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin",
            "-f", "image2pipe", "-framerate", str(spec["fps"]),
            "-c:v", "png" if spec["alpha"] else "mjpeg",
-           "-i", "-", *([] if spec["alpha"] else RANGE_ARGS),
+           "-i", "-", *RANGE_ARGS,
            *encoder_args(output, spec["alpha"]),
            "-r", str(spec["fps"]), "-y", str(output)]
 
     started = time.monotonic()
-    with sync_playwright() as p:
+    # ffmpeg's stderr goes to a file, not a pipe: nothing reads a pipe until
+    # the end, and an ffmpeg chatty enough to fill one would block mid-render.
+    with sync_playwright() as p, tempfile.TemporaryFile() as log:
         browser = p.chromium.launch()
         page = browser.new_page(
             viewport={"width": spec["width"], "height": spec["height"]},
@@ -231,8 +238,7 @@ def render(spec, output):
         page.add_init_script(f"window.MOTION = {json.dumps(page_spec)};")
         page.goto(template.as_uri())
         page.evaluate("document.fonts.ready")
-        encoder = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
+        encoder = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=log)
         try:
             for index in range(frames):
                 page.evaluate(SEEK_JS, index / spec["fps"])
@@ -243,8 +249,9 @@ def render(spec, output):
             pass
         finally:
             encoder.stdin.close()
-            err = encoder.stderr.read().decode(errors="replace")
             encoder.wait()
+            log.seek(0)
+            err = log.read().decode(errors="replace")
             browser.close()
     print(f"\r  frame {frames}/{frames}")
     if encoder.returncode != 0:

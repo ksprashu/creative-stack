@@ -27,8 +27,10 @@ the results are joined with a short silence. The chunk list is written to
 `<output>.plan.json` before anything is synthesised, so a mispronounced word or
 a bad split is a one-line edit and a `--from-plan` re-run of the same chunks.
 
-A file whose every line reads `Name: words` with exactly two names becomes a
-two-speaker dialogue — the API's multi-speaker mode tops out at two voices.
+A file whose every line reads `Name: words`, with at least two names and no
+digits in them, becomes a dialogue — two speakers at most on Gemini, whose
+multi-speaker mode tops out there. One name throughout is narration with the
+labels dropped. `--narration` reads the file as prose whatever it looks like.
 
 `--engine chirp` uses Cloud Text-to-Speech's Chirp 3 HD voices instead: the same
 voice names, no style prompt, but steady across long reads, 40+ locales via
@@ -43,7 +45,6 @@ import argparse
 import io
 import json
 import re
-import shutil
 import subprocess
 import sys
 import wave
@@ -84,7 +85,8 @@ SECOND_VOICE = "Kore"
 
 # Well under the request limit (Vertex caps the text field at 4,000 bytes) and
 # short enough that one bad take costs seconds, not the whole narration.
-MAX_CHARS = 1500
+# Bytes, not characters: Devanagari is three bytes a character in UTF-8.
+MAX_BYTES = 1500
 RATE = 24000
 TURN_GAP = 0.25  # Chirp dialogue: silence between turns inside one chunk
 SPEAKER_LINE = re.compile(r"^\s*([A-Z][\w .'-]{0,30}?)\s*:\s+(\S.*)$")
@@ -102,11 +104,15 @@ def plain(text):
     return re.sub(r"(\*\*|__|`|(?<!\w)[*_](?=\S))", "", text)
 
 
+def size(text):
+    return len(text.encode())
+
+
 def split_long(paragraph):
-    """A paragraph over MAX_CHARS, broken at sentence ends."""
+    """A paragraph over MAX_BYTES, broken at sentence ends."""
     pieces, current = [], ""
-    for sentence in re.split(r"(?<=[.!?])\s+", paragraph):
-        if current and len(current) + len(sentence) + 1 > MAX_CHARS:
+    for sentence in re.split(r"(?<=[.!?।])\s+", paragraph):
+        if current and size(current) + size(sentence) + 1 > MAX_BYTES:
             pieces.append(current)
             current = sentence
         else:
@@ -125,28 +131,36 @@ def chunk_narration(text):
 
 
 def parse_dialogue(text):
-    """[(speaker, line)] if every line is `Name: words`, else None."""
+    """[(speaker, line)] if every line is `Name: words`, else None.
+
+    A label with a digit in it is a list (`Step 1:`), not a person.
+    """
     lines = [line for line in text.splitlines() if line.strip()]
     turns = [SPEAKER_LINE.match(line) for line in lines]
     if not lines or not all(turns):
+        return None
+    if any(re.search(r"\d", m.group(1)) for m in turns):
         return None
     return [(m.group(1), m.group(2).strip()) for m in turns]
 
 
 def chunk_dialogue(turns):
     """Consecutive turns packed into chunks, never splitting a turn."""
-    chunks, current, size = [], [], 0
+    chunks, current, used = [], [], 0
     for speaker, line in turns:
-        if current and size + len(line) > MAX_CHARS:
+        if current and used + size(line) > MAX_BYTES:
             chunks.append({"turns": current})
-            current, size = [], 0
+            current, used = [], 0
         current.append({"speaker": speaker, "text": line})
-        size += len(line)
+        used += size(line)
     return chunks + ([{"turns": current}] if current else [])
 
 
 def build_plan(text, args):
-    turns = parse_dialogue(text)
+    turns = None if args.narration else parse_dialogue(text)
+    if turns and len({s for s, _ in turns}) == 1:
+        # One voice throughout is narration; multi-speaker mode wants two.
+        text, turns = "\n\n".join(line for _, line in turns), None
     plan = {"engine": args.engine, "style": args.style or "", "gap": args.gap,
             "model": args.model}
     if args.engine == "chirp":
@@ -310,8 +324,8 @@ def write(takes, gap, out):
         wav.setframerate(rate)
         wav.writeframes(pcm)
     if wav_path != out:
-        ffmpeg = shutil.which("ffmpeg") or G.die(
-            "ffmpeg not found. " + G.hostenv.package_hint("ffmpeg"))
+        ffmpeg = G.hostenv.ffmpeg_bin("ffmpeg") or G.die(
+            "ffmpeg not found. " + G.hostenv.ffmpeg_install_hint())
         subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
                         "-y", "-i", str(wav_path), str(out)], check=True)
         wav_path.unlink()
@@ -376,6 +390,8 @@ def main():
     ap.add_argument("--voice", help=f"prebuilt voice (default {DEFAULT_VOICE}) "
                                     "or a designed voice_... id")
     ap.add_argument("--voices", help="two voices for a dialogue, e.g. Kore,Puck")
+    ap.add_argument("--narration", action="store_true",
+                    help="read `Name: words` lines as prose, not a dialogue")
     ap.add_argument("--style", help='delivery, e.g. "warm, unhurried, smiling"')
     ap.add_argument("--gap", type=float, default=0.6,
                     help="seconds of silence between chunks (default 0.6)")

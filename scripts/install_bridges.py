@@ -29,6 +29,7 @@ Resolve scripting environment, and prints how to finish OBS setup.
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -79,12 +80,15 @@ WRAPPER_MARK = "# creative-stack bridge"
 
 
 def wrapper_text(target):
-    return f'#!/bin/sh\n{WRAPPER_MARK}\nexec "{target}" "$@"\n'
+    # shlex.quote, not "...": a "$" or backtick in a path would expand.
+    return f'#!/bin/sh\n{WRAPPER_MARK}\nexec {shlex.quote(str(target))} "$@"\n'
 
 
 def is_ours(path):
-    return (path.is_file() and not path.is_symlink()
-            and WRAPPER_MARK.encode() in path.read_bytes()[:200])
+    if not path.is_file() or path.is_symlink():
+        return False
+    with path.open("rb") as f:                  # the mark is on line two
+        return WRAPPER_MARK.encode() in f.read(200)
 
 
 def link_bridges(check_only):
