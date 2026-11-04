@@ -4,7 +4,8 @@ Invariants for anyone — human or model — changing this repo.
 
 ## What this is
 
-A portable content-production toolchain plus eight agent skills. It targets macOS, Arch and
+A portable content-production toolchain plus eight agent skills of its own, and anot8 vendored
+from its own repo. It targets macOS, Arch and
 Debian/Ubuntu from a clean machine, and Claude Code, Codex, Gemini CLI, Antigravity and
 Cursor from a clean profile. Portability is a feature, not a nice-to-have: a change that
 only works on the machine — or in the harness — you tested it on is a bug.
@@ -33,7 +34,8 @@ Named `hostenv`, not `platform`, because skill scripts put `scripts/` on `sys.pa
 *   **No secrets in the repo, ever.** Keys live in the OS secret store (Keychain / libsecret /
     `0600` file). Scripts read them from `os.environ` and fail fast. `creative-stack.env` is
     paths only. `validate_skills.py` is the gate — do not weaken it.
-*   **MCP servers are pinned to reviewed commit SHAs.** Never `main`, never a floating tag.
+*   **MCP servers are pinned to reviewed commit SHAs** — or, for a registry package
+    (`uvx`, `npx`), an exact version. Never `main`, never a floating tag, never `@latest`.
     They execute arbitrary code with filesystem access. All are registered disabled.
 *   **Never write a user-scope MCP config.** A harness with no project scope (Codex, the
     Antigravity IDE) gets a printed command, not an edit. Writing one would start Blender and
@@ -65,6 +67,10 @@ Copied from `agent-skill-forge` so the muscle memory carries over.
 *   Hard constraints are written as `**NEVER** …` and each one explains *why*. They exist
     because something already went wrong; keep the reason.
 *   Every script carries the Apache-2.0 header and is runnable standalone with `--help`.
+*   **A skill from another repo is vendored, not copied.** `sync_skills.EXTERNAL` names the repo,
+    a commit SHA and the folder; `--fix` sparse-clones it under
+    `~/.local/share/creative-stack/skills/`. It keeps its upstream format (`npx skills`
+    frontmatter), so `validate_skills.py` does not lint it — fix it upstream, then re-pin.
 *   Scripts write a reviewable intermediate (`.json`, `.yaml`, `.srt`, `.md`) before they write
     pixels, so a bad automatic decision is an edit rather than a re-run.
 

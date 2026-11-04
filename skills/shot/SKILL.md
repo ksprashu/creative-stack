@@ -31,8 +31,23 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    ```
    For a desktop app window, capture with `screencapture -w out/raw.png` first.
 
-2. **Redact and annotate** — write a spec, then apply it. Coordinates are fractions of
-   width/height, so the spec survives a resolution change:
+2. **Redact and annotate** — with **anot8** when callouts have to land on particular UI
+   elements. Its spec takes percentages and live anchors (`"@submit.right"`), and every render
+   hands back each annotation's pixel `bounds` and a preview, so placement is checked by
+   looking, not guessed once. The `anot8` skill has the spec reference; the `anot8_*` MCP
+   tools are the same engine with the PNG returned straight into context.
+   ```bash
+   anot8 init out/raw.png -o out/raw.anot8.json      # natural size filled in
+   anot8 render out/raw.anot8.json -o out/annotated.png --md out/notes.md
+   # look at out/annotated.png and the printed bounds, then nudge and re-render:
+   anot8 apply out/raw.anot8.json --in-place --ops '[{"op":"update","id":"deploy","set":{"y":312}}]'
+   ```
+   Not sure where a secret is? `/raster`'s `segment.py --query "the API key" --json hits.json`
+   finds it by description; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
+   at `x: xmin/10 %`, `y: ymin/10 %` covers it.
+
+   `annotate.py` is the house-style alternative: brand-token colours, a YAML spec in
+   fractions of width/height, no Node. `make demo` uses it.
    ```bash
    python3 scripts/annotate.py -i out/raw.png -s steps.yaml -o out/annotated.png
    ```
@@ -110,6 +125,9 @@ vhs demo.tape
     tokens, account pickers. Apply a `redact` annotation, do not crop and hope.
 *   **NEVER** use `style: block` redaction over text you intend to stay unreadable *and* look
     natural — use `blur`; use `block` only when total removal is the point.
+*   **NEVER** ship an anot8 render without opening the PNG it wrote. The returned `bounds`
+    say where a box *is*, not whether it covers the thing; a blur 10px short of a token's
+    last characters leaves the suffix readable.
 *   **NEVER** hardcode absolute machine paths in a spec or in committed markdown image embeds.
 *   **NEVER** re-take a documentation screenshot by hand when a `capture.py` invocation exists —
     edit the invocation so the next UI change is a one-command regeneration.

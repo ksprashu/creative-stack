@@ -96,6 +96,17 @@ SERVERS = {
         "needs": "DaVinci Resolve STUDIO running (free edition cannot be scripted)",
         "studio_only": True,
     },
+    # First-party (same author as this stack). An exact version, never
+    # @latest: npx would otherwise fetch whatever was published last on every
+    # cold start. Nothing to open first, so it is useful in any repo — see the
+    # promote command this script prints.
+    "anot8": {
+        "kind": "npx",
+        "package": "@ksprashu/anot8@1.0.1",
+        "repo": "ksprashu/anot8",
+        "stars": "own",
+        "needs": "Node 20+ (headless; no app to open)",
+    },
 }
 
 # Official, first-party skills that already cover a large slice of this stack.
@@ -219,6 +230,13 @@ def build_config():
                 continue
             servers[name] = {"command": "uvx", "args": [spec["package"]]}
             ok(f"{name} -> uvx {spec['package']} ({spec['repo']}, ⭐{spec['stars']})")
+
+        elif spec["kind"] == "npx":
+            if not shutil.which("npx"):
+                warn(f"{name}: npx not found — install Node first")
+                continue
+            servers[name] = {"command": "npx", "args": ["-y", spec["package"], "mcp"]}
+            ok(f"{name} -> npx {spec['package']} ({spec['repo']})")
 
         elif spec["kind"] == "git":
             dest = vendor_repo(name, spec)
