@@ -19,7 +19,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@ksprashu/anot8@1.0.1",
+        "@ksprashu/anot8@1.1.0",
         "mcp"
       ]
     }

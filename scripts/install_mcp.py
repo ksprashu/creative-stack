@@ -102,7 +102,7 @@ SERVERS = {
     # promote command this script prints.
     "anot8": {
         "kind": "npx",
-        "package": "@ksprashu/anot8@1.0.1",
+        "package": "@ksprashu/anot8@1.1.0",
         "repo": "ksprashu/anot8",
         "stars": "own",
         "needs": "Node 20+ (headless; no app to open)",

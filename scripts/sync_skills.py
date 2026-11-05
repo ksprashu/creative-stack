@@ -48,7 +48,7 @@ SKILLS = ["shot", "vidkit", "deck", "vector", "raster", "render3d", "sound", "ar
 EXTERNAL = {
     "anot8": {
         "repo": "ksprashu/anot8",
-        "sha": "19e94aba196aa7114ee620f259120dd44ab97d2f",   # pinned 2026-11-04
+        "sha": "6c855caee30c86b19563c5dbef203cbaf300c539",   # pinned 2026-11-05 (1.1.0)
         "path": "skills/anot8",
     },
 }
