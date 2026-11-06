@@ -292,9 +292,14 @@ def video_meta(path):
         capture_output=True, text=True)
     if out.returncode != 0:
         R.die(f"cannot read {path}: {out.stderr.strip()[:200]}")
-    stream = json.loads(out.stdout)["streams"][0]
-    num, _, den = stream["r_frame_rate"].partition("/")
-    return stream["width"], stream["height"], float(num) / float(den or 1)
+    streams = json.loads(out.stdout).get("streams") or []
+    if not streams:
+        R.die(f"no video stream in {path}")
+    stream = streams[0]
+    # "0/0" when the container does not say; vidlib.probe falls back the same way
+    num, _, den = stream.get("r_frame_rate", "0/0").partition("/")
+    fps = float(num) / float(den) if float(den or 0) and float(num or 0) else 30.0
+    return stream["width"], stream["height"], fps
 
 
 def decode(path, size, scratch):
@@ -304,7 +309,8 @@ def decode(path, size, scratch):
     so a long clip costs disk rather than RAM.
     """
     import numpy as np                                   # noqa: PLC0415
-    ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg")
+    ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg") or R.die(
+        f"ffmpeg not found. {R.hostenv.ffmpeg_install_hint()}")
     w, h = size
     raw = Path(scratch) / "frames.rgb"
     run = subprocess.run(
@@ -442,7 +448,8 @@ def process_video(args, src, record):
     del frames
     scratch.cleanup()
 
-    ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg")
+    ffmpeg = R.hostenv.ffmpeg_bin("ffmpeg") or R.die(
+        f"ffmpeg not found. {R.hostenv.ffmpeg_install_hint()}")
     target = Path(args.output or args.mask)
     target.parent.mkdir(parents=True, exist_ok=True)
     reader = subprocess.Popen(
@@ -452,31 +459,41 @@ def process_video(args, src, record):
         [ffmpeg, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{width}x{height}", "-r", f"{fps}", "-i", "-",
          "-i", str(src), "-map", "0:v", "-map", "1:a?", "-c:a", "copy",
+         # yuv420p needs even sides; pad rather than scale so no pixel moves
+         "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
          "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
          "-movflags", "+faststart", str(target)], stdin=subprocess.PIPE)
     colour = parse_colour(args.colour)
     frame_bytes = width * height * 3
-    for i in range(len(masks)):
-        buf = reader.stdout.read(frame_bytes)
-        if len(buf) < frame_bytes:
-            break
-        frame = Image.frombuffer("RGB", (width, height), buf)
-        mask = Image.fromarray(masks[i].astype(np.uint8) * 255, "L").resize(
-            (width, height), Image.BILINEAR)
-        if boxy(args):
-            mask = mask.point(lambda v: 255 if v else 0)  # no soft box edge
-        if args.grow > 0:
-            mask = mask.filter(ImageFilter.MaxFilter(args.grow * 2 + 1))
-        if args.op:
-            frame = apply_op(frame, mask, args.op, args.strength, colour,
-                             args.feather).convert("RGB")
-        else:
-            frame = mask.convert("RGB")
-        writer.stdin.write(frame.tobytes())
-    reader.stdout.close()
-    reader.wait()
-    writer.stdin.close()
-    if writer.wait() != 0:
+    try:
+        for i in range(len(masks)):
+            buf = reader.stdout.read(frame_bytes)
+            if len(buf) < frame_bytes:
+                break
+            frame = Image.frombuffer("RGB", (width, height), buf)
+            mask = Image.fromarray(masks[i].astype(np.uint8) * 255, "L").resize(
+                (width, height), Image.BILINEAR)
+            if boxy(args):
+                mask = mask.point(lambda v: 255 if v else 0)  # no soft box edge
+            if args.grow > 0:
+                mask = mask.filter(ImageFilter.MaxFilter(args.grow * 2 + 1))
+            if args.op:
+                frame = apply_op(frame, mask, args.op, args.strength, colour,
+                                 args.feather).convert("RGB")
+            else:
+                frame = mask.convert("RGB")
+            writer.stdin.write(frame.tobytes())
+    except BrokenPipeError:
+        pass                                             # writer died; its exit code says why
+    finally:
+        reader.stdout.close()
+        reader.wait()
+        try:
+            writer.stdin.close()
+        except BrokenPipeError:
+            pass
+        rc = writer.wait()
+    if rc != 0:
         R.die("encode failed")
     print(f"  {GREEN}✓{RESET} {target}  {DIM}{R.human(target.stat().st_size)}{RESET}")
     return 0
@@ -569,6 +586,9 @@ def main():
 
     def grown(m):
         return m.filter(ImageFilter.MaxFilter(args.grow * 2 + 1)) if args.grow > 0 else m
+
+    if not (args.mask or args.cutout or args.op):
+        return 0                                         # --json only: review first
 
     # The outline is only computed when an output needs it — SAM 2 is the slow
     # part, and a box redaction alone never does.

@@ -123,7 +123,8 @@ def fetch_file(client, uri, timeout):
     started = time.time()
     try:
         while True:
-            state = client.files.get(name=name).state.name
+            info = client.files.get(name=name)
+            state = info.state.name if info.state else None   # optional in the SDK
             if state == "ACTIVE":
                 return client.files.download(file=uri)
             if state == "FAILED":

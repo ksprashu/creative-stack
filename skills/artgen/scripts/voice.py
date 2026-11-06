@@ -174,8 +174,9 @@ def build_plan(text, args):
         elif len(speakers) > 2:
             G.die(f"{len(speakers)} speakers ({', '.join(speakers)}) — Gemini "
                   "TTS voices at most two per request. Split the script.")
-        voices = (args.voices.split(",") if args.voices
-                  else [args.voice or DEFAULT_VOICE, SECOND_VOICE])
+        first = args.voice or DEFAULT_VOICE
+        second = DEFAULT_VOICE if first == SECOND_VOICE else SECOND_VOICE
+        voices = args.voices.split(",") if args.voices else [first, second]
         if len(speakers) == 2 and len(voices) < 2:
             G.die("a two-speaker dialogue needs --voices A,B")
         plan["speakers"] = dict(zip(speakers, (v.strip() for v in voices)))
@@ -296,10 +297,11 @@ def synthesise(plan, args):
 
     takes, used = [], None
     for index, chunk in enumerate(plan["chunks"]):
-        # Once a model answers, keep it at the head: switching voice models
+        # Once a model answers, it is the only model: switching voice models
         # between paragraphs is audible even when the voice name is the same.
+        # Retries and the other backend still apply; a different model does not.
         if used:
-            chain = G.chain_for(used[0], chain)
+            chain = [used[0]]
         take, model, backend = G.attempt(chain, call_for(chunk), args.backend,
                                          quiet=index > 0)
         used = (model, backend)

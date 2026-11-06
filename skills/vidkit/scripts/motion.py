@@ -205,8 +205,9 @@ def render(spec, output):
         die("playwright not installed. Run: uv pip install playwright && "
             "playwright install chromium")
 
-    template = TEMPLATES / f"{spec['template']}.html"
-    if not template.exists():
+    # One file directly in TEMPLATES: a "../" name would load any local HTML.
+    template = (TEMPLATES / f"{spec['template']}.html").resolve()
+    if template.parent != TEMPLATES.resolve() or not template.is_file():
         names = sorted(p.stem for p in TEMPLATES.glob("*.html"))
         die(f"no template '{spec['template']}' — have: {', '.join(names)}")
 

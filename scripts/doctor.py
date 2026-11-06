@@ -20,7 +20,7 @@ registration and skill symlinks. Exits non-zero only on HARD failures, so it is
 safe to use as a CI/bootstrap gate.
 
     python3 scripts/doctor.py            # full report
-    python3 scripts/doctor.py --quick    # skip the slow headless smoke tests
+    python3 scripts/doctor.py --quick    # skip the smoke tests and network probes
     python3 scripts/doctor.py --json     # machine-readable
 """
 
@@ -325,7 +325,7 @@ def _smoke_fluidsynth(rep, td):
             "MIDI→WAV ok" if _produced(out) else msg[-60:])
 
 
-def check_credentials(rep):
+def check_credentials(rep, quick):
     """Probe both AI backends. Vertex org policy may block specific models."""
     project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID") or os.environ.get(
         "GOOGLE_CLOUD_PROJECT")
@@ -346,6 +346,8 @@ def check_credentials(rep):
             else "GOOGLE_API_KEY unset — /artgen uses Vertex only, with no "
                  "fallback when org policy blocks a model")
 
+    if quick:
+        return rep.add("models", "probes", "skip", "--quick")
     _probe_models(rep, project, key)
     _probe_chirp(rep, project)
 
@@ -559,15 +561,25 @@ def check_skills(rep):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--quick", action="store_true", help="skip slow headless smoke tests")
+    ap.add_argument("--quick", action="store_true",
+                    help="skip the headless smoke tests and the per-model network probes")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     args = ap.parse_args()
+
+    # The model probes import google-genai, which lives in the venv. Run from
+    # the system python3 (the README, bootstrap --doctor) they would all skip,
+    # so hand over to the venv's interpreter when there is one.
+    venv = REPO_ROOT / ".venv"
+    if ((venv / "bin/python").exists() and Path(sys.prefix).resolve() != venv.resolve()
+            and not os.environ.get("CREATIVE_STACK_DOCTOR_REEXEC")):
+        os.environ["CREATIVE_STACK_DOCTOR_REEXEC"] = "1"
+        os.execv(venv / "bin/python", [str(venv / "bin/python"), __file__, *sys.argv[1:]])
 
     rep = Report()
     check_platform(rep)
     check_tools(rep)
     check_bridges(rep, args.quick)
-    check_credentials(rep)
+    check_credentials(rep, args.quick)
     check_ml(rep)
     check_resolve(rep)
     check_mcp(rep)
