@@ -120,12 +120,18 @@ you whether it hit the target.
    word timings; and `/vidkit captions.py --style karaoke` burns `\kf` word-sweeping lyrics into
    the 1080p output.
 
+   See [`references/routing-and-karaoke.md`](references/routing-and-karaoke.md) for the complete
+   Audio Hijack 4 / Loopback 2 / PipeWire routing recipes, dual-stem karaoke recording setup, and
+   platform mastering target table.
+
 ---
 
 ## 💡 Concrete Example
 
-Scoring a ten-minute tutorial: repair the narration, build a bed the right length, open with a
-sting, and end up with one file per delivery target.
+### Example A — Scoring and Mastering a Ten-Minute Tutorial
+
+Repair the narration, build a bed the right length, open with a sting, and end up with one file per
+delivery target.
 
 ```bash
 # 1. repair the narration, learning the room from the pause before the first word
@@ -152,6 +158,31 @@ python3 scripts/session.py -o out/episode.rpp \
 
 `/vidkit publish.py` mounts `out/episode.wav` back onto the video; `/render3d logo3d.py --spin`
 is what `out/sting.wav` is scored to.
+
+### Example B — Live Loopback Capture, Karaoke Key Shift & Vocal Mastering
+
+Separate a song into stems, transpose it down 2 semitones to fit the singer's range, capture the
+singer's microphone alongside a Loopback virtual bus, and master the final performance to −14 LUFS:
+
+```bash
+# 1. inspect hardware interfaces (e.g. Volt 276) and virtual loopback busses (Loopback / BlackHole / PipeWire)
+python3 scripts/record.py --list-devices
+
+# 2. split the song into instrumental + vocal stems, shift key -2 semitones via rubberband,
+#    transcribe word timings from the isolated vocal stem, and build the 1080p karaoke practice track
+python3 scripts/karaoke.py -i raw/song.mp3 --semitones -2 --guide-db -18 \
+  --reaper -o out/karaoke-practice.mp4
+
+# 3. capture the live vocal take on the mic while monitoring the backing track on the loopback bus
+python3 scripts/record.py --device "Volt 276" --loopback "Clean Mic" \
+  --duration 180 --clean -o out/live-take.wav
+
+# 4. mix the cleaned vocal take (with studio vocal compression + plate reverb) over the transposed
+#    instrumental, master to -14 LUFS / -1.0 dBTP, and emit both the 1080p video and Reaper .rpp session
+python3 scripts/karaoke.py --from-plan out/karaoke-practice.karaoke.json \
+  --sing out/live-take.mic-clean.wav --reverb 0.22 --guide-db off \
+  --reaper -o out/karaoke-master.mp4
+```
 
 ---
 
@@ -188,3 +219,17 @@ is what `out/sting.wav` is scored to.
 *   **NEVER** commit a SoundFont. `assets/soundfonts/` is gitignored — the bank is 14MB of
     binary that `scripts/install_bridges.py` fetches, and `$CREATIVE_STACK_SOUNDFONT` overrides
     it for anyone with a better one.
+*   **NEVER** cancel center-panned vocals across the full spectrum (`c0-c1` without a bass split).
+    Kick drums and bass guitar are panned dead-center alongside lead vocals; cancelling below
+    130 Hz wipes out the low end. `karaoke.py` splits at 130 Hz so stereo bass stays intact while
+    phase cancellation acts only on the vocal band above 130 Hz.
+*   **NEVER** pitch-shift a song or vocal without formant preservation (`rubberband --formant`).
+    Scaling pitch without preserving formants shifts the vocal tract resonances and produces
+    chipmunk or monster timbres even at ±2 semitones.
+*   **NEVER** transcribe a full stereo mix for karaoke word timings when an isolated vocal stem is
+    available. Accompaniment transients cause `whisper-cli -ojf` token offsets to drift; always
+    separate stems first and transcribe `.vocals.wav`.
+*   **NEVER** detect virtual loopback devices by matching the string `"Loopback"` alone. Rogue
+    Amoeba Loopback lets users name virtual devices anything (e.g. `"Clean Mic"`); always query
+    `hostenv.audio_devices()`, which inspects `coreaudio_device_transport == "coreaudio_device_type_virtual"`
+    and the device manufacturer.
