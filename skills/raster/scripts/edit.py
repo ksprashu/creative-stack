@@ -166,12 +166,13 @@ def _round(radius, width, height):
     resize has to come before the round in the op list.
     """
     r = int(radius)
-    return ["(", "+clone", "-alpha", "extract", "-draw",
+    return ["-alpha", "set", "(", "+clone", "-alpha", "extract", "-draw",
             f"fill black polygon 0,0 0,{r} {r},0 "
             f"fill white circle {r},{r} {r},0", "(", "+clone", "-flip", ")",
             "-compose", "Multiply", "-composite",
             "(", "+clone", "-flop", ")", "-compose", "Multiply", "-composite",
-            ")", "-alpha", "off", "-compose", "CopyOpacity", "-composite"]
+            ")", "-alpha", "off", "-compose", "CopyOpacity", "-composite",
+            "-compose", "Over"]
 
 
 def main():

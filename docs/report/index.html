@@ -1,0 +1,1960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Creative Stack — Optical Bench &amp; Cutting Room Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ==========================================================================
+       ATELIER DIRECTION: "Optical Bench & Cutting Room"
+       Precision technical ledger + recessed dark optical inspection bays.
+       ========================================================================== */
+    :root {
+      --bg-paper: #F8F9FA;
+      --bg-surface: #FFFFFF;
+      --bg-subtle: #F1F3F4;
+      --bg-bay: #0D1117;
+      --bg-bay-elevated: #161B22;
+      --ink: #17181B;
+      --ink-secondary: #3C4043;
+      --ink-muted: #5F6368;
+      --ink-on-bay: #E8EAED;
+      --ink-on-bay-muted: #9AA0A6;
+      --rule: #DADCE0;
+      --rule-strong: #BDC1C6;
+      --rule-bay: #21262D;
+      --accent: #1A73E8;
+      --accent-subtle: #E8F0FE;
+      --ok: #188038;
+      --ok-bg: #E6F4EA;
+      --warn: #B06000;
+      --warn-bg: #FEF7E0;
+      --danger: #D93025;
+      --danger-bg: #FCE8E6;
+
+      --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      font-size: 100%;
+      scroll-behavior: smooth;
+      background-color: var(--bg-paper);
+      color: var(--ink);
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      color: var(--ink);
+      background-color: var(--bg-paper);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Skip Link for Keyboard Accessibility */
+    .skip-link {
+      position: absolute;
+      inset-block-start: -3rem;
+      inset-inline-start: 1rem;
+      background: var(--accent);
+      color: #FFFFFF;
+      padding: 0.5rem 1rem;
+      font-weight: 600;
+      z-index: 1000;
+      text-decoration: none;
+    }
+    .skip-link:focus {
+      inset-block-start: 1rem;
+    }
+
+    /* Top Telemetry Ribbon & Masthead */
+    .masthead {
+      background: var(--bg-surface);
+      border-block-end: 2px solid var(--ink);
+      padding: 2rem 2rem 1.5rem;
+    }
+
+    .masthead-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    .telemetry-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-block-end: 1.25rem;
+      margin-block-end: 1.25rem;
+      border-block-end: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-muted);
+    }
+
+    .telemetry-cluster {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.2rem 0.6rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid currentColor;
+    }
+    .status-pill.ok {
+      color: var(--ok);
+      background: var(--ok-bg);
+    }
+    .status-pill.accent {
+      color: var(--accent);
+      background: var(--accent-subtle);
+    }
+    .status-pill.danger {
+      color: var(--danger);
+      background: var(--danger-bg);
+    }
+
+    .masthead-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2rem;
+      align-items: end;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-size: clamp(1.85rem, 3vw, 2.75rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.12;
+      margin: 0 0 0.75rem 0;
+    }
+
+    .lead {
+      font-size: 1.05rem;
+      color: var(--ink-secondary);
+      max-width: 72ch;
+      margin: 0;
+    }
+
+    .masthead-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(110px, 1fr));
+      border: 1px solid var(--rule);
+      background: var(--bg-paper);
+    }
+
+    .stat-cell {
+      padding: 0.75rem 1rem;
+      border-inline-end: 1px solid var(--rule);
+    }
+    .stat-cell:last-child {
+      border-inline-end: none;
+    }
+    .stat-val {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--ink);
+    }
+    .stat-label {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--ink-muted);
+      margin-block-start: 0.25rem;
+    }
+
+    /* Sticky Workbench Index Bar */
+    .bench-nav {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 50;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      border-block-end: 1px solid var(--rule);
+    }
+
+    .bench-nav-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      display: flex;
+      overflow-x: auto;
+      gap: 0.25rem;
+    }
+
+    .bench-nav a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.75rem 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--ink-secondary);
+      text-decoration: none;
+      white-space: nowrap;
+      border-block-end: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .bench-nav a:hover,
+    .bench-nav a:focus-visible {
+      color: var(--accent);
+      border-block-end-color: var(--accent);
+      outline: none;
+    }
+
+    /* Main Container */
+    .workspace {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    /* Section Structure */
+    .bench-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--rule);
+      margin-block-end: 2.5rem;
+    }
+
+    /* Deferred rendering for below-the-fold heavy media sections
+       (modern-web-guidance: defer-rendering-heavy-content) */
+    .heavy-section-deferred {
+      content-visibility: auto;
+      contain-intrinsic-size: auto none auto 720px;
+    }
+
+    .section-header {
+      padding: 1.5rem 2rem;
+      border-block-end: 1px solid var(--rule);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      background: var(--bg-paper);
+    }
+
+    .section-title-group h2 {
+      font-family: var(--font-display);
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.35rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .skill-tag {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      background: var(--ink);
+      color: #FFFFFF;
+    }
+
+    .section-desc {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 0.95rem;
+      max-width: 75ch;
+    }
+
+    .engine-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .engine-badge {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      padding: 0.25rem 0.55rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--rule-strong);
+      color: var(--ink-secondary);
+    }
+
+    /* 3-Stage Pipeline Contract Strip */
+    .pipeline-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-block-end: 1px solid var(--rule);
+      background: var(--bg-subtle);
+      font-size: 0.85rem;
+    }
+
+    .pipeline-stage {
+      padding: 0.85rem 1.5rem;
+      border-inline-end: 1px solid var(--rule);
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .pipeline-stage:last-child {
+      border-inline-end: none;
+    }
+
+    .stage-role {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+    }
+    .stage-artifact {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .stage-note {
+      color: var(--ink-secondary);
+      font-size: 0.8rem;
+    }
+
+    /* Optical Dark Bay for Media Comparison */
+    .optical-bay {
+      background: var(--bg-bay);
+      color: var(--ink-on-bay);
+      padding: 1.75rem 2rem;
+      border-block-end: 1px solid var(--rule);
+    }
+
+    .bay-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-block-end: 1.25rem;
+      padding-block-end: 0.75rem;
+      border-block-end: 1px solid var(--rule-bay);
+    }
+
+    .bay-label {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--ink-on-bay-muted);
+    }
+
+    .tab-group {
+      display: inline-flex;
+      border: 1px solid var(--rule-bay);
+      background: var(--bg-bay-elevated);
+    }
+
+    .tab-btn {
+      appearance: none;
+      background: transparent;
+      color: var(--ink-on-bay-muted);
+      border: none;
+      border-inline-end: 1px solid var(--rule-bay);
+      padding: 0.45rem 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .tab-btn:last-child {
+      border-inline-end: none;
+    }
+    .tab-btn[aria-selected="true"],
+    .tab-btn.active {
+      background: var(--accent);
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+    .tab-btn:focus-visible {
+      outline: 2px solid #FFFFFF;
+      outline-offset: -2px;
+    }
+
+    /* Interactive Before / After Wipe Compare Component */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .wipe-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1000 / 600;
+      background: #05070A;
+      border: 1px solid var(--rule-bay);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .wipe-stage img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .wipe-after {
+      clip-path: inset(0 0 0 var(--wipe-pos, 50%));
+    }
+
+    .wipe-divider {
+      position: absolute;
+      inset-block: 0;
+      inset-inline-start: var(--wipe-pos, 50%);
+      width: 2px;
+      background: var(--accent);
+      pointer-events: none;
+      z-index: 3;
+    }
+    .wipe-divider::after {
+      content: "◄ ►";
+      position: absolute;
+      inset-block-start: 50%;
+      inset-inline-start: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--accent);
+      color: #FFFFFF;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      padding: 0.25rem 0.45rem;
+      white-space: nowrap;
+      border: 1px solid #FFFFFF;
+    }
+
+    .wipe-tag {
+      position: absolute;
+      inset-block-start: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      background: rgba(13, 17, 23, 0.85);
+      color: #FFFFFF;
+      border: 1px solid var(--rule-bay);
+      z-index: 2;
+      pointer-events: none;
+    }
+    .wipe-tag.before {
+      inset-inline-start: 0.75rem;
+    }
+    .wipe-tag.after {
+      inset-inline-end: 0.75rem;
+      border-color: var(--accent);
+    }
+
+    .wipe-controls {
+      margin-block-start: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--ink-on-bay-muted);
+    }
+
+    .wipe-slider {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: ew-resize;
+    }
+
+    /* Media Cards inside Optical Bay */
+    .bay-card {
+      background: var(--bg-bay-elevated);
+      border: 1px solid var(--rule-bay);
+      padding: 1rem;
+    }
+
+    .bay-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-block-end: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--ink-on-bay-muted);
+    }
+
+    .bay-card img,
+    .bay-card video {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: #05070A;
+      border: 1px solid var(--rule-bay);
+    }
+
+    .bay-caption {
+      margin: 0.65rem 0 0 0;
+      font-size: 0.82rem;
+      color: var(--ink-on-bay-muted);
+    }
+
+    /* Multi-column Media Grids */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    /* Code & Spec Inspector Blocks */
+    .spec-grid {
+      padding: 1.5rem 2rem;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+      background: var(--bg-surface);
+    }
+
+    .spec-box {
+      border: 1px solid var(--rule);
+      background: var(--bg-paper);
+    }
+
+    .spec-box-header {
+      padding: 0.55rem 0.9rem;
+      background: var(--bg-subtle);
+      border-block-end: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .spec-pre {
+      margin: 0;
+      padding: 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      max-height: 240px;
+      color: var(--ink);
+    }
+
+    /* Audio Console Track Strips */
+    .audio-console {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .track-strip {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 1.25rem;
+      background: var(--bg-bay-elevated);
+      border: 1px solid var(--rule-bay);
+      padding: 1rem;
+      align-items: center;
+    }
+
+    .track-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .track-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--ink-on-bay);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .track-meters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    .meter-chip {
+      padding: 0.15rem 0.45rem;
+      background: #0D1117;
+      border: 1px solid var(--rule-bay);
+      color: var(--ink-on-bay-muted);
+    }
+    .meter-chip.lufs {
+      color: #4ADE80;
+      border-color: #166534;
+    }
+
+    .track-Strip-audio {
+      width: 100%;
+      height: 36px;
+      margin-block-start: 0.25rem;
+    }
+
+    .track-vis img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid var(--rule-bay);
+      background: #05070A;
+    }
+
+    /* Video Timeline Cut Bar */
+    .cut-timeline {
+      margin-block-top: 1.25rem;
+      padding: 1rem;
+      background: var(--bg-bay-elevated);
+      border: 1px solid var(--rule-bay);
+    }
+
+    .cut-bar {
+      display: flex;
+      height: 28px;
+      width: 100%;
+      border: 1px solid var(--rule-bay);
+      overflow: hidden;
+      margin: 0.5rem 0;
+    }
+
+    .cut-seg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: #FFFFFF;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .cut-seg.keep {
+      background: #188038;
+    }
+    .cut-seg.drop {
+      background: #7F1D1D;
+      color: #FCA5A5;
+      background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 6px,
+        rgba(0, 0, 0, 0.25) 6px,
+        rgba(0, 0, 0, 0.25) 12px
+      );
+    }
+
+    /* Responsive Tables (modern-web-guidance: responsive-table) */
+    .table-wrapper {
+      overflow: auto;
+      max-inline-size: 100%;
+      max-block-size: min(560px, 80vh);
+      container-type: inline-size;
+      border: 1px solid var(--rule);
+      background: var(--bg-surface);
+    }
+    .table-wrapper:focus-visible {
+      outline: 2px solid var(--accent);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.88rem;
+    }
+
+    caption {
+      text-align: start;
+      padding: 0.85rem 1.25rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+      background: var(--bg-subtle);
+      border-block-end: 1px solid var(--rule);
+    }
+
+    thead {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 2;
+      background: var(--bg-subtle);
+    }
+
+    th, td {
+      padding: 0.7rem 1rem;
+      text-align: start;
+      border-block-end: 1px solid var(--rule);
+      vertical-align: top;
+    }
+
+    thead th {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      border-block-end: 2px solid var(--rule-strong);
+    }
+
+    tbody th {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 1;
+      background: var(--bg-surface);
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--ink);
+      border-inline-end: 1px solid var(--rule);
+    }
+
+    tbody tr:hover td,
+    tbody tr:hover th {
+      background: var(--bg-paper);
+    }
+
+    @container (width < 640px) {
+      table, thead, tbody, tr, th, td {
+        display: block;
+      }
+      thead {
+        display: none;
+      }
+      tr {
+        margin-block-end: 1rem;
+        border: 1px solid var(--rule-strong);
+      }
+      tbody th {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background: var(--bg-subtle);
+        border-inline-end: none;
+      }
+      td:nth-of-type(1)::before {
+        content: var(--label-2, "Detail") ": ";
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+      td:nth-of-type(2)::before {
+        content: var(--label-3, "Input") ": ";
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+      td:nth-of-type(3)::before {
+        content: var(--label-4, "Output") ": ";
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .masthead-grid,
+      .compare-grid,
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .spec-grid,
+      .pipeline-strip,
+      .track-strip {
+        grid-template-columns: 1fr;
+      }
+      .pipeline-stage {
+        border-inline-end: none;
+        border-block-end: 1px solid var(--rule);
+      }
+    }
+
+    footer {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 2rem;
+      border-block-start: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <a href="#main-workspace" class="skip-link">Skip to transformation workbenches</a>
+
+  <!-- ========================================================================
+       MASTHEAD & LIVE TELEMETRY
+       ======================================================================== -->
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="telemetry-bar">
+        <div class="telemetry-cluster">
+          <span class="status-pill ok">✓ DOCTOR: 94 OK / 0 FAIL</span>
+          <span class="status-pill accent">macOS 26.7.2 (arm64 / Apple Metal)</span>
+          <span>FFmpeg 9.0.2 (full) · Blender 5.0.1 · FreeCAD 1.1.3 · GIMP 3.0 · Inkscape 1.4.2 · Audacity 4 · Reaper 7</span>
+        </div>
+        <div class="telemetry-cluster">
+          <span>Loudness Target: <strong>-14.0 LUFS / -1.0 dBTP</strong></span>
+          <span>Unit Tests: <strong>27 / 27 PASS</strong></span>
+        </div>
+      </div>
+
+      <div class="masthead-grid">
+        <div>
+          <h1>Creative Stack — Optical Bench &amp; Media Transformation Report</h1>
+          <p class="lead">
+            End-to-end verification of your desktop production toolchain and global AI assistant wiring
+            (Antigravity App, Antigravity CLI, Jetski, Claude Code, Gemini CLI, Codex, and Cursor).
+            Inspect every original fixture, reviewable intermediate file, and rendered output across
+            2D screenshots, raster pipelines, vector diagrams, FreeCAD + Blender 3D raytracing,
+            broadcast audio mastering, video jump-cuts, slide decks, and Vertex AI generative media.
+          </p>
+        </div>
+        <div class="masthead-stats" role="group" aria-label="Verification summary metrics">
+          <div class="stat-cell">
+            <span class="stat-val">8 + 1</span>
+            <span class="stat-label">SKILLS + ANOT8</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-val">47</span>
+            <span class="stat-label">CLI BINARIES</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-val">7</span>
+            <span class="stat-label">DESKTOP APPS</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-val">10</span>
+            <span class="stat-label">GENAI MODELS</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sticky Navigation -->
+  <nav class="bench-nav" aria-label="Studio Workbenches">
+    <div class="bench-nav-inner">
+      <a href="#bench-shot">01 /shot (Capture &amp; Redact)</a>
+      <a href="#bench-raster">02 /raster (Edit, Fix &amp; Ladder)</a>
+      <a href="#bench-3d">03 /render3d (FreeCAD + Blender)</a>
+      <a href="#bench-sound">04 /sound (Audacity, Reaper &amp; LUFS)</a>
+      <a href="#bench-vidkit">05 /vidkit (Autocut &amp; Captions)</a>
+      <a href="#bench-vector">06 /vector (D2 &amp; Bitmap Trace)</a>
+      <a href="#bench-deck">07 /deck (Markdown → Slides)</a>
+      <a href="#bench-artgen">08 /artgen &amp; Global Harnesses</a>
+    </div>
+  </nav>
+
+  <main id="main-workspace" class="workspace">
+
+    <!-- ======================================================================
+         BENCH 01: /shot — Screenshots, Secret Redaction & Browser Framing
+         ====================================================================== -->
+    <section id="bench-shot" class="bench-section" aria-labelledby="title-shot">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-shot"><span class="skill-tag">/shot</span> Parametric Callouts, Secret Redaction &amp; Retina Framing</h2>
+          <p class="section-desc">
+            Transforms a raw screenshot containing an exposed API token into a redacted, numbered tutorial step
+            from a YAML specification, and wraps it in a `@2x` browser chrome over the brand hero gradient.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">annotate.py</span>
+          <span class="engine-badge">frame.py</span>
+          <span class="engine-badge">ImageMagick 7.1.2 + Chromium</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. ORIGINAL INPUT</span>
+          <span class="stage-artifact">fixtures/raw.png (1000×600)</span>
+          <span class="stage-note">Unframed UI with exposed <code>AIzaSyFAKE_EXAMPLE_KEY_1234567</code></span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. REVIEWABLE INTERMEDIATE</span>
+          <span class="stage-artifact">fixtures/steps.yaml</span>
+          <span class="stage-note">Declarative coordinates for box, badge <code>#1</code>, blur region, and arrow</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. TRANSFORMED OUTPUTS</span>
+          <span class="stage-artifact">shot-annotated.png &amp; shot-framed.png</span>
+          <span class="stage-note">Gaussian-redacted callout PNG (32 KB) + 2x framed hero card (724 KB)</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 01 — Drag slider to compare Original Unredacted Input vs. Annotated &amp; Redacted Output</span>
+          <span class="status-pill ok">✓ Secret Token Blurred (0x18 Gaussian)</span>
+        </div>
+
+        <div class="compare-grid">
+          <!-- Interactive Before/After Wipe -->
+          <div>
+            <div class="wipe-stage" id="wipe-shot" style="--wipe-pos: 48%;">
+              <img src="assets/raw.png" alt="Original unredacted screenshot showing exposed API key" width="1000" height="600">
+              <img src="assets/shot-annotated.png" class="wipe-after" alt="Transformed screenshot with numbered callout 1 and blurred API token" width="1000" height="600">
+              <span class="wipe-tag before">ORIGINAL: raw.png</span>
+              <span class="wipe-tag after">TRANSFORMED:annotate.py</span>
+              <div class="wipe-divider"></div>
+            </div>
+            <div class="wipe-controls">
+              <label for="slider-shot">Wipe Split:</label>
+              <input id="slider-shot" class="wipe-slider" type="range" min="0" max="100" value="48" data-target="wipe-shot">
+              <output for="slider-shot" id="out-slider-shot">48%</output>
+            </div>
+          </div>
+
+          <!-- Framed 2x Output -->
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>TRANSFORMED STAGE 2: frame.py (--chrome browser --backdrop hero)</span>
+              <span>2256×1724 (@2x) · 724 KB</span>
+            </div>
+            <img src="assets/shot-framed.png" alt="Screenshot wrapped in macOS browser chrome on brand hero gradient with caption Deploy in 90 seconds" width="2256" height="1724">
+            <p class="bay-caption">
+              Rendered via headless Chromium at <code>device_scale_factor=2</code> with traffic-light window controls, URL bar (<code>console.cloud.google.com</code>), elevation shadow, and caption.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Intermediate Spec: fixtures/steps.yaml</span>
+            <a href="assets/steps.yaml" download>Download YAML</a>
+          </div>
+          <pre class="spec-pre">annotations:
+  - type: box
+    rect: [200, 50, 600, 90]
+  - type: number
+    at: [200, 50]
+    n: 1
+  - type: blur
+    rect: [260, 280, 480, 40]
+  - type: arrow
+    from: [300, 420]
+    to: [480, 330]
+    label: "Token redacted"</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Exact CLI Reproduction</span>
+            <span>skills/shot/scripts/</span>
+          </div>
+          <pre class="spec-pre"># 1. Apply declarative callouts &amp; secret redaction
+.venv/bin/python skills/shot/scripts/annotate.py \
+  -i fixtures/raw.png -o out/demo/annotated.png \
+  --spec fixtures/steps.yaml
+
+# 2. Wrap in browser window chrome on hero backdrop
+.venv/bin/python skills/shot/scripts/frame.py \
+  -i fixtures/raw.png -o out/demo/shot.png \
+  --chrome browser --url "console.cloud.google.com" \
+  --backdrop hero --caption "Deploy in 90 seconds"</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 02: /raster — Batch Pipeline, Bug Fix & Responsive WebP Ladder
+         ====================================================================== -->
+    <section id="bench-raster" class="bench-section" aria-labelledby="title-raster">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-raster"><span class="skill-tag">/raster</span> Single-Pass ImageMagick Pipeline, Bug Fix &amp; Responsive Ladder</h2>
+          <p class="section-desc">
+            Executes a 4-stage pipeline (<code>resize:960,round:16,shadow,strip</code>) in one ImageMagick process
+            and builds a multi-width WebP + oxipng PNG responsive <code>srcset</code> ladder via libvips.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">edit.py</span>
+          <span class="engine-badge">ladder.py</span>
+          <span class="engine-badge">vips 8.18.6 + oxipng 10.1.1</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. ORIGINAL INPUT</span>
+          <span class="stage-artifact">shot-annotated.png (1000×600, RGB)</span>
+          <span class="stage-note">Sharp 90° corners, no alpha channel, 32 KB</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. BUG CAUGHT &amp; FIXED IN edit.py</span>
+          <span class="stage-artifact">_round() compose state leak</span>
+          <span class="stage-note">Added <code>-alpha set</code> &amp; restored <code>-compose Over</code> before <code>shadow</code></span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. TRANSFORMED OUTPUTS</span>
+          <span class="stage-artifact">raster-card-fixed.png + 4-file ladder</span>
+          <span class="stage-note">Rounded shadowed card (55.4 KB) + 480w/960w WebP (3.8 KB / 9.9 KB)</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 02 — Original Flat PNG vs. Rounded + Brand Drop-Shadow Card &amp; WebP Derivative Ladder</span>
+          <span class="status-pill ok">✓ 73% Byte Reduction (PNG → WebP)</span>
+        </div>
+
+        <div class="grid-2">
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>ORIGINAL: shot-annotated.png (Sharp Corners, No Alpha)</span>
+              <span>1000×600 · 32.0 KB</span>
+            </div>
+            <img src="assets/shot-annotated.png" alt="Original flat annotated screenshot with sharp square corners" width="1000" height="600" loading="lazy">
+            <p class="bay-caption">Source image prior to corner masking and brand shadow elevation.</p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>TRANSFORMED: edit.py (--ops resize:960,round:16,shadow,strip)</span>
+              <span>1032×648 (RGBA) · 55.4 KB</span>
+            </div>
+            <img src="assets/raster-card-fixed.png" alt="Transformed screenshot with 16px rounded corners and soft drop shadow over alpha" width="1032" height="648" loading="lazy" style="background: #F8F9FA; padding: 0.5rem;">
+            <p class="bay-caption">
+              Shown on light paper background so the 16px alpha corner mask and <code>40x18+0+10</code> drop shadow are clearly visible.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Generated srcset Manifest: ladder/manifest.json</span>
+            <a href="assets/ladder-manifest.json" download>Download JSON</a>
+          </div>
+          <pre class="spec-pre">{
+  "demo-annotated.png": {
+    "source": [1000, 600],
+    "files": [
+      {"file": "demo-annotated-480.webp", "width": 480, "format": "webp", "bytes": 3914},
+      {"file": "demo-annotated-480.png",  "width": 480, "format": "png",  "bytes": 15389},
+      {"file": "demo-annotated-960.webp", "width": 960, "format": "webp", "bytes": 10128},
+      {"file": "demo-annotated-960.png",  "width": 960, "format": "png",  "bytes": 37371}
+    ],
+    "html": "&lt;img src=\"demo-annotated-960.webp\" srcset=\"demo-annotated-480.webp 480w, demo-annotated-960.webp 960w\" sizes=\"(max-width: 960px) 100vw, 960px\" alt=\"\"&gt;"
+  }
+}</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Bug Fix Applied in skills/raster/scripts/edit.py</span>
+            <span class="status-pill ok">test_pure.py: PASS</span>
+          </div>
+          <pre class="spec-pre"># Root cause: _round() ended with `-compose CopyOpacity -composite`.
+# When `shadow` ran `-layers merge` next, ImageMagick 7 merged layers
+# using CopyOpacity instead of Over, zeroing out RGB channels.
+
+def _round(radius, width, height):
+    r = int(radius)
+    return ["-alpha", "set", "(", "+clone", "-alpha", "extract", "-draw",
+            f"fill black polygon 0,0 0,{r} {r},0 "
+            f"fill white circle {r},{r} {r},0", "(", "+clone", "-flip", ")",
+            "-compose", "Multiply", "-composite",
+            "(", "+clone", "-flop", ")", "-compose", "Multiply", "-composite",
+            ")", "-alpha", "off", "-compose", "CopyOpacity", "-composite",
+            "-compose", "Over"]</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 03: /render3d + FreeCAD + Blender — Parametric CAD to 3D Studio
+         ====================================================================== -->
+    <section id="bench-3d" class="bench-section heavy-section-deferred" aria-labelledby="title-3d">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-3d"><span class="skill-tag">/render3d</span> FreeCAD Parametric B-Rep Solid → Blender 5.0 Cycles &amp; Turntables</h2>
+          <p class="section-desc">
+            Builds a parametric flanged planetary mount in headless <strong>FreeCAD 1.1.3</strong> (<code>freecadcmd</code>),
+            projects an engineering wireframe blueprint via FreeCAD <code>TechDraw</code>, and raytraces the exported mesh in
+            headless <strong>Blender 5.0.1 Cycles</strong> (Apple Metal GPU) as studio stills, orthographic isometrics, and 360° turntables.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">FreeCAD 1.1.3 (freecadcmd)</span>
+          <span class="engine-badge">Blender 5.0.1 (Cycles Metal GPU)</span>
+          <span class="engine-badge">render.py &amp; logo3d.py</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. FREECAD PARAMETRIC B-REP</span>
+          <span class="stage-artifact">generate_cad.py → planetary-mount.step</span>
+          <span class="stage-note">90 B-Rep faces, 251 edges, 6 counterbored bolt bosses, 6 radial gussets</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. TECHDRAW &amp; MESH EXPORT</span>
+          <span class="stage-artifact">cad-blueprint.svg &amp; planetary-mount.stl</span>
+          <span class="stage-note">Exact hidden/visible edge SVG projection + triangulated STL mesh</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. BLENDER CYCLES STUDIO RENDERS</span>
+          <span class="stage-artifact">cad-studio.png, cad-iso.png, cad-turntable.mp4</span>
+          <span class="stage-note">3-point studio lighting, shadow-catcher cyclorama, and 360° video spin</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 03 — FreeCAD B-Rep Blueprint vs. Blender Cycles Raytrace (Drag Wipe Slider) + Live 3D Turntable Videos</span>
+          <div>
+            <a href="assets/planetary-mount.step" download class="status-pill accent" style="text-decoration:none;">⬇ Download STEP (ISO 10303-21)</a>
+            <a href="assets/planetary-mount.stl" download class="status-pill ok" style="text-decoration:none;">⬇ Download STL Mesh</a>
+          </div>
+        </div>
+
+        <!-- Top Row: Interactive Wipe comparing FreeCAD Blueprint SVG vs Blender Studio Raytrace -->
+        <div class="compare-grid" style="margin-block-end: 1.5rem;">
+          <div>
+            <div class="wipe-stage" id="wipe-cad" style="--wipe-pos: 45%; aspect-ratio: 960 / 640;">
+              <img src="assets/cad-blueprint.svg" alt="FreeCAD TechDraw isometric B-Rep wireframe blueprint of planetary mount" width="960" height="640" loading="lazy">
+              <img src="assets/cad-studio.png" class="wipe-after" alt="Blender 5.0 Cycles studio raytraced render of FreeCAD planetary mount" width="960" height="640" loading="lazy">
+              <span class="wipe-tag before">FREECAD TECHDRAW: cad-blueprint.svg</span>
+              <span class="wipe-tag after">BLENDER CYCLES: cad-studio.png</span>
+              <div class="wipe-divider"></div>
+            </div>
+            <div class="wipe-controls">
+              <label for="slider-cad">Wipe FreeCAD Wireframe ↔ Blender Cycles Raytrace:</label>
+              <input id="slider-cad" class="wipe-slider" type="range" min="0" max="100" value="45" data-target="wipe-cad">
+              <output for="slider-cad" id="out-slider-cad">45%</output>
+            </div>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>BLENDER ORTHOGRAPHIC ISOMETRIC (--view iso --mode dark)</span>
+              <span>960×640 · Cycles 48 Samples</span>
+            </div>
+            <img src="assets/cad-iso.png" alt="True orthographic isometric render of the FreeCAD planetary mount on dark studio cove" width="960" height="640" loading="lazy">
+            <p class="bay-caption">
+              Rendered with an orthographic camera locked to the true isometric angle (<code>arctan(1/√2) = 35.264°</code>) for distortion-free engineering documentation.
+            </p>
+          </div>
+        </div>
+
+        <!-- Second Row: 360 Turntable Video, 3D Extruded SVG Logo Still, and 3D Logo Rock Sting Video -->
+        <div class="grid-3">
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>FREECAD → BLENDER 360° TURNTABLE</span>
+              <span>cad-turntable.mp4 · 640×420</span>
+            </div>
+            <video controls loop muted playsinline loading="lazy" width="640" height="420" preload="metadata" poster="assets/cad-studio.png">
+              <source src="assets/cad-turntable.mp4" type="video/mp4">
+            </video>
+            <p class="bay-caption">
+              <code>render.py -i planetary-mount.stl --turntable --frames 36 --gpu</code>
+            </p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>2D SVG → 3D EXTRUDED LOGO STILL</span>
+              <span>logo3d-still.png · 800×500</span>
+            </div>
+            <img src="assets/logo3d-still.png" alt="2D SVG hexagonal mark extruded into 3D with bevelled edges and studio lighting" width="800" height="500" loading="lazy">
+            <p class="bay-caption">
+              <code>logo3d.py -i mark.svg --depth 0.08 --bevel 0.004 --gpu</code>
+            </p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>2D SVG → 3D ANIMATED LOGO STING</span>
+              <span>logo3d-sting.mp4 · 640×420</span>
+            </div>
+            <video controls loop muted playsinline loading="lazy" width="640" height="420" preload="metadata" poster="assets/logo3d-still.png">
+              <source src="assets/logo3d-sting.mp4" type="video/mp4">
+            </video>
+            <p class="bay-caption">
+              <code>logo3d.py -i mark.svg --spin --frames 36 --gpu</code> (60° ease-in/out rock)
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>FreeCAD Parametric Script: generate_cad.py</span>
+            <a href="assets/generate_cad.py" download>Download Python</a>
+          </div>
+          <pre class="spec-pre">import math, FreeCAD, Part, Mesh
+doc = FreeCAD.newDocument("PlanetaryMount")
+base = Part.makeCylinder(42.0, 8.0)
+for i in range(6):
+    angle = math.radians(i * 60.0)
+    bx, by = 31.0 * math.cos(angle), 31.0 * math.sin(angle)
+    base = base.cut(Part.makeCylinder(4.2, 20.0, FreeCAD.Vector(bx, by, -5.0)))
+    base = base.cut(Part.makeCylinder(7.5, 4.0, FreeCAD.Vector(bx, by, 5.0)))
+collar = Part.makeCylinder(26.0, 14.0)
+turret = Part.makeCylinder(22.0, 28.0)
+body = base.fuse(collar).fuse(turret)
+# + 6 radial stiffening gussets, 13mm central bore &amp; keyway slot
+Part.export([part_obj], "planetary-mount.step")
+Mesh.export([part_obj], "planetary-mount.stl")</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Headless FreeCAD → Blender CLI Pipeline</span>
+            <span>skills/render3d/scripts/</span>
+          </div>
+          <pre class="spec-pre"># 1. Generate STEP + STL + TechDraw SVG headlessly via FreeCAD
+/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd \
+  docs/report/assets/generate_cad.py
+
+# 2. Raytrace studio shot, isometric view &amp; 360° turntable in Blender
+.venv/bin/python skills/render3d/scripts/render.py \
+  -i docs/report/assets/planetary-mount.stl \
+  -o docs/report/assets/cad-studio.png \
+  --view three-quarter --material blue --backdrop hero --gpu</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 04: /sound + Audacity 4 + Reaper 7 — Broadcast Audio Console
+         ====================================================================== -->
+    <section id="bench-sound" class="bench-section heavy-section-deferred" aria-labelledby="title-sound">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-sound"><span class="skill-tag">/sound</span> Broadcast Audio Cleanup, Procedural FluidSynth Beds &amp; DAW Sessions</h2>
+          <p class="section-desc">
+            Extracts raw voice audio, applies an 80Hz high-pass rumble filter, de-esser, gate, compressor, and two-pass
+            EBU R128 loudness normalisation, synthesises royalty-free MIDI beds via FluidSynth, sidechain-ducks the music
+            12 dB under speech, and exports multi-track sessions for <strong>Audacity 4</strong> (<code>.lof</code>) and <strong>Reaper 7</strong> (<code>.rpp</code>).
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">Audacity 4.app (.lof)</span>
+          <span class="engine-badge">REAPER.app (.rpp)</span>
+          <span class="engine-badge">FluidSynth 2.6.0 + SoX + FFmpeg ebur128</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. ORIGINAL RAW AUDIO</span>
+          <span class="stage-artifact">voice-raw.wav (14.28s, 48kHz)</span>
+          <span class="stage-note">Unprocessed track from <code>rec.mp4</code> with dead air &amp; unlevelled dynamics</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. CLEANED VOICE + SYNTHESIZED BEDS</span>
+          <span class="stage-artifact">voice-clean.wav, bed.wav, sting.wav</span>
+          <span class="stage-note">EBU R128 levelled speech (-14.0 LUFS) + C-minor ambient bed + C-major sting</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. SIDECHAIN MASTER &amp; DAW HANDOFF</span>
+          <span class="stage-artifact">episode-mix.wav + .rpp + .lof</span>
+          <span class="stage-note">12.0 dB sidechain ducking under speech (-14.3 LUFS / -1.0 dBTP)</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 04 — Play &amp; Compare Each Stage with Synchronized FFT Spectrograms (top) &amp; Amplitude Waveforms (bottom)</span>
+          <div>
+            <a href="assets/audacity-session.lof" download class="status-pill accent" style="text-decoration:none;">⬇ Audacity 4 Session (.lof)</a>
+            <a href="assets/episode-session.rpp" download class="status-pill ok" style="text-decoration:none;">⬇ Reaper 7 Project (.rpp)</a>
+          </div>
+        </div>
+
+        <div class="audio-console">
+          <!-- Track 1: Original Raw Audio -->
+          <div class="track-strip">
+            <div class="track-meta">
+              <div class="track-title">
+                <span class="status-pill danger">BEFORE</span>
+                <span>1. Raw Uncut Audio</span>
+              </div>
+              <div class="track-meters">
+                <span class="meter-chip">14.28s</span>
+                <span class="meter-chip">48kHz Mono</span>
+                <span class="meter-chip">6.44s Dead Air</span>
+              </div>
+              <audio class="track-Strip-audio" controls loading="lazy" preload="metadata" src="assets/voice-raw.wav" aria-label="Original raw unprocessed audio from rec.mp4"></audio>
+            </div>
+            <div class="track-vis">
+              <img src="assets/vis-voice-raw.png" alt="Spectrogram and red waveform of raw unprocessed audio showing long silent gaps" width="960" height="260" loading="lazy">
+            </div>
+          </div>
+
+          <!-- Track 2: Cleaned & Cut Speech -->
+          <div class="track-strip">
+            <div class="track-meta">
+              <div class="track-title">
+                <span class="status-pill ok">CLEANED</span>
+                <span>2. Speech (clean.py)</span>
+              </div>
+              <div class="track-meters">
+                <span class="meter-chip">7.84s</span>
+                <span class="meter-chip lufs">-14.0 LUFS</span>
+                <span class="meter-chip">-2.1 dBTP</span>
+                <span class="meter-chip">LRA 0.8</span>
+              </div>
+              <audio class="track-Strip-audio" controls loading="lazy" preload="metadata" src="assets/voice-clean.wav" aria-label="Cleaned and EBU R128 normalized voice track"></audio>
+            </div>
+            <div class="track-vis">
+              <img src="assets/vis-voice-clean.png" alt="Spectrogram and green waveform of cleaned speech after silence removal and R128 normalization" width="960" height="260" loading="lazy">
+            </div>
+          </div>
+
+          <!-- Track 3: FluidSynth Procedural Music Bed & Sting -->
+          <div class="track-strip">
+            <div class="track-meta">
+              <div class="track-title">
+                <span class="status-pill accent">SYNTH</span>
+                <span>3. Ambient Bed &amp; Sting (bed.py)</span>
+              </div>
+              <div class="track-meters">
+                <span class="meter-chip">C Minor · 72 BPM</span>
+                <span class="meter-chip lufs">-14.7 LUFS</span>
+                <span class="meter-chip">-1.0 dBTP</span>
+              </div>
+              <audio class="track-Strip-audio" controls loading="lazy" preload="metadata" src="assets/bed.wav" aria-label="Procedural ambient music bed synthesized by FluidSynth"></audio>
+              <div style="font-family:var(--font-mono); font-size:0.72rem; color:var(--ink-on-bay-muted); margin-top:0.25rem;">
+                Corporate Sting (5.1s, C Major, 140 BPM):
+              </div>
+              <audio class="track-Strip-audio" controls loading="lazy" preload="metadata" src="assets/sting.wav" aria-label="Procedural corporate logo sting synthesized by FluidSynth"></audio>
+            </div>
+            <div class="track-vis">
+              <img src="assets/vis-bed.png" alt="Spectrogram and blue waveform of procedural ambient music bed" width="960" height="260" loading="lazy">
+            </div>
+          </div>
+
+          <!-- Track 4: Final Sidechain-Ducked Master -->
+          <div class="track-strip">
+            <div class="track-meta">
+              <div class="track-title">
+                <span class="status-pill ok">MASTER</span>
+                <span>4. Ducked Master (mix.py)</span>
+              </div>
+              <div class="track-meters">
+                <span class="meter-chip">10.3s</span>
+                <span class="meter-chip">Duck: 12.0 dB</span>
+                <span class="meter-chip lufs">-14.3 LUFS</span>
+                <span class="meter-chip">-1.0 dBTP</span>
+              </div>
+              <audio class="track-Strip-audio" controls loading="lazy" preload="metadata" src="assets/episode-mix.wav" aria-label="Mastered episode mix with intro sting, sidechain ducked ambient bed, and cleaned voice"></audio>
+            </div>
+            <div class="track-vis">
+              <img src="assets/vis-episode-mix.png" alt="Spectrogram and gold waveform of final sidechain-ducked master showing intro sting, ducked bed under voice, and tailswell" width="960" height="260" loading="lazy">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Audacity 4 (.lof) &amp; Reaper 7 (.rpp) Session Files</span>
+            <span>Open directly in Desktop DAWs</span>
+          </div>
+          <pre class="spec-pre"># Audacity 4 Multi-Track List-of-Files (assets/audacity-session.lof)
+window
+file "sting.wav" offset 0.0
+file "voice-clean.wav" offset 1.0
+file "bed.wav" offset 0.0
+
+# Reaper 7 Project (assets/episode-session.rpp via session.py)
+&lt;REAPER_PROJECT 0.1 "7.0" 0
+  SAMPLERATE 48000 0 0
+  TEMPO 120 4 4
+  &lt;TRACK
+    NAME "voice-clean"
+    &lt;ITEM POSITION 0.000000 LENGTH 7.840000 ...&gt;
+  &gt;
+  &lt;TRACK
+    NAME "bed"
+    VOLPAN 0.251189 0 -1 -1 1   # -12.0 dB pre-set stem gain
+  &gt;</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Exact CLI Reproduction</span>
+            <span>skills/sound/scripts/</span>
+          </div>
+          <pre class="spec-pre"># 1. Synthesise royalty-free corporate sting &amp; ambient bed
+.venv/bin/python skills/sound/scripts/bed.py -o sting.wav --style corporate --sting
+.venv/bin/python skills/sound/scripts/bed.py -o bed.wav --style ambient --duration 10
+
+# 2. Clean raw speech &amp; normalise to EBU R128 (-14.0 LUFS)
+.venv/bin/python skills/sound/scripts/clean.py -i cut.mp4 -o voice-clean.wav
+
+# 3. Sidechain-duck bed 12dB under speech + place sting at 0.0s
+.venv/bin/python skills/sound/scripts/mix.py \
+  -v voice-clean.wav -m bed.wav -s sting.wav@0.0 \
+  -o episode-mix.wav --lead 1.0 --tail 1.5
+
+# 4. Generate Reaper .RPP multi-track project
+.venv/bin/python skills/sound/scripts/session.py \
+  -o episode-session.rpp -t voice-clean.wav -t "bed.wav@0.0:-12" -t "sting.wav@0.0:-3"</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 05: /vidkit — Silence Jump-Cuts, Karaoke Captions & NLE Timeline
+         ====================================================================== -->
+    <section id="bench-vidkit" class="bench-section heavy-section-deferred" aria-labelledby="title-vidkit">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-vidkit"><span class="skill-tag">/vidkit</span> Automated Silence Jump-Cuts, Karaoke Captions &amp; DaVinci Resolve XML</h2>
+          <p class="section-desc">
+            Scans a `14.28s` screen recording for dead air, writes an editable `cut.json` decision list that trims
+            <strong>45% of the runtime</strong> (`7.84s` kept across 3 segments), burns word-by-word ASS `\kf` karaoke
+            captions, and exports a frame-accurate FCP7 XML timeline (`edit.xml`) for DaVinci Resolve.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">autocut.py</span>
+          <span class="engine-badge">captions.py</span>
+          <span class="engine-badge">timeline.py (OpenTimelineIO)</span>
+          <span class="engine-badge">motion.py</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. ORIGINAL RECORDING</span>
+          <span class="stage-artifact">fixtures/rec.mp4 (14.28s, 1280×720)</span>
+          <span class="stage-note">Contains 6.44s of silence across two pauses</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. REVIEWABLE INTERMEDIATES</span>
+          <span class="stage-artifact">cut.json, demo.srt, edit.xml</span>
+          <span class="stage-note">Editable segment keep/drop list + FCP7 XML for DaVinci Resolve</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. TRANSFORMED VIDEOS</span>
+          <span class="stage-artifact">cut.mp4 &amp; cut-captioned.mp4 (7.84s)</span>
+          <span class="stage-note">45% shorter jump-cut + word-by-word brand accent sweep subtitles</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 05 — Side-by-Side Video Comparison: Uncut Recording (14.28s) vs. Silence-Cut (7.84s) vs. Karaoke Captioned</span>
+          <a href="assets/edit.xml" download class="status-pill accent" style="text-decoration:none;">⬇ Download DaVinci Resolve FCP7 XML (edit.xml)</a>
+        </div>
+
+        <div class="grid-3">
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>1. ORIGINAL: fixtures/rec.mp4</span>
+              <span>00:14.28 · 1280×720</span>
+            </div>
+            <video controls loading="lazy" width="1280" height="720" preload="metadata">
+              <source src="assets/rec.mp4" type="video/mp4">
+            </video>
+            <p class="bay-caption">Raw capture with dead air pauses at <code>02.12s–04.88s</code> and <code>07.62s–11.88s</code>.</p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>2. TRANSFORMED: autocut.py (cut.mp4)</span>
+              <span>00:07.84 (-45%) · 192 KB</span>
+            </div>
+            <video controls loading="lazy" width="1280" height="720" preload="metadata">
+              <source src="assets/cut.mp4" type="video/mp4">
+            </video>
+            <p class="bay-caption">3 active segments concatenated seamlessly with 120ms breath margins.</p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>3. TRANSFORMED: captions.py (--style karaoke)</span>
+              <span>00:07.84 · 217 KB</span>
+            </div>
+            <video controls loading="lazy" width="1280" height="720" preload="metadata">
+              <source src="assets/cut-captioned.mp4" type="video/mp4">
+            </video>
+            <p class="bay-caption">Burned-in libass subtitles with brand accent word-by-word <code>\kf</code> sweep.</p>
+          </div>
+        </div>
+
+        <!-- Visual Timeline Representation of cut.json -->
+        <div class="cut-timeline">
+          <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:0.75rem; color:var(--ink-on-bay-muted);">
+            <span>SOURCE TIMELINE MAP (cut.json — 14.279s total)</span>
+            <span>KEPT: 7.840s (green) · REMOVED SILENCE: 6.439s (hatched red)</span>
+          </div>
+          <div class="cut-bar" role="img" aria-label="Timeline bar showing 3 kept speech segments and 2 removed silence segments">
+            <div class="cut-seg keep" style="width: 14.8%;">KEEP 0.00–2.12s</div>
+            <div class="cut-seg drop" style="width: 19.3%;">CUT 2.76s</div>
+            <div class="cut-seg keep" style="width: 19.2%;">KEEP 4.88–7.62s</div>
+            <div class="cut-seg drop" style="width: 29.8%;">CUT 4.26s</div>
+            <div class="cut-seg keep" style="width: 16.9%;">KEEP 11.88–14.28s</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Intermediate Cut List: out/demo/cut.json</span>
+            <a href="assets/cut.json" download>Download JSON</a>
+          </div>
+          <pre class="spec-pre">{
+  "source": "fixtures/rec.mp4",
+  "duration": 14.279,
+  "fps": 30.0,
+  "width": 1280,
+  "height": 720,
+  "segments": [
+    {"start": 0.0,    "end": 2.12,   "keep": true,  "label": "segment 1"},
+    {"start": 2.12,   "end": 4.88,   "keep": false, "label": "silence (2.76s)"},
+    {"start": 4.88,   "end": 7.62,   "keep": true,  "label": "segment 2"},
+    {"start": 7.62,   "end": 11.88,  "keep": false, "label": "silence (4.26s)"},
+    {"start": 11.88,  "end": 14.279, "keep": true,  "label": "segment 3"}
+  ]
+}</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Motion Graphics Intermediate: title-card.motion.json</span>
+            <a href="assets/title-card.motion.json" download>Download JSON</a>
+          </div>
+          <pre class="spec-pre">{
+  "template": "title",
+  "duration": 2.0,
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "mode": "light",
+  "params": {
+    "kicker": "Creative Stack",
+    "title": "Ship faster with 8 skills",
+    "subtitle": "Automated media production on macOS &amp; Linux"
+  }
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 06: /vector — D2 Architecture Diagrams, SVGO & Bitmap Tracing
+         ====================================================================== -->
+    <section id="bench-vector" class="bench-section heavy-section-deferred" aria-labelledby="title-vector">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-vector"><span class="skill-tag">/vector</span> Brand-Themed D2 Diagrams, SVGO Optimisation &amp; Potrace Bitmap Tracing</h2>
+          <p class="section-desc">
+            Compiles declarative text diagrams (<code>.d2</code>, <code>.mmd</code>, <code>.dot</code>, <code>.puml</code>)
+            using the palette and typography in <code>brand/tokens.json</code>, optimises SVG trees via SVGO without stripping
+            <code>viewBox</code>, and traces blurred raster bitmaps into smooth cubic Bézier SVG paths via Potrace.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">diagram.py (D2 v0.9.0)</span>
+          <span class="engine-badge">svg.py (SVGO 4.1.0 + resvg)</span>
+          <span class="engine-badge">trace.py (Potrace 1.16)</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. SOURCES (TEXT &amp; BITMAP)</span>
+          <span class="stage-artifact">pipeline.d2 &amp; bitmap-badge-raw.png</span>
+          <span class="stage-note">12-line D2 graph source + 400×400 blurred raster badge PNG</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. BRAND TOKEN INJECTION</span>
+          <span class="stage-artifact">brand/tokens.json</span>
+          <span class="stage-note">Injects <code>#1A73E8</code> accent stroke, surface fills, and Google Sans</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. TRANSFORMED VECTORS</span>
+          <span class="stage-artifact">pipeline-opt.svg &amp; bitmap-badge-traced.svg</span>
+          <span class="stage-note">Resolution-independent SVGs + 2x raster PNG export</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 06 — D2 Architecture Diagram Render &amp; Raster-to-Vector Potrace Conversion</span>
+          <a href="assets/pipeline-opt.svg" download class="status-pill ok" style="text-decoration:none;">⬇ Download Optimised SVG</a>
+        </div>
+
+        <div class="grid-3">
+          <div class="bay-card" style="grid-column: span 2;">
+            <div class="bay-card-header">
+              <span>TRANSFORMED D2 ARCHITECTURE DIAGRAM: pipeline.d2 → pipeline-opt.svg</span>
+              <span>16 KB → 15 KB (SVGO)</span>
+            </div>
+            <img src="assets/pipeline-opt.svg" alt="Rendered D2 architecture diagram showing data flow across all 8 Creative Stack skills" width="1200" height="380" loading="lazy" style="background:#FFFFFF; padding: 0.75rem;">
+            <p class="bay-caption">
+              Compiled by <code>diagram.py -i pipeline.d2 -o pipeline.svg</code> and optimised by <code>svg.py --op optimise</code>.
+            </p>
+          </div>
+
+          <div class="bay-card">
+            <div class="bay-card-header">
+              <span>BITMAP → SVG TRACE (trace.py)</span>
+              <span>400×400 PNG → Bézier SVG</span>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <img src="assets/bitmap-badge-raw.png" alt="Blurred black and white raster bitmap badge before tracing" width="400" height="400" loading="lazy">
+                <div style="font-family:var(--font-mono); font-size:0.68rem; color:var(--ink-on-bay-muted); margin-top:0.3rem;">BEFORE: Blurred PNG</div>
+              </div>
+              <div>
+                <img src="assets/bitmap-badge-traced.svg" alt="Crisp vector SVG badge traced from bitmap and recolored to brand blue" width="400" height="400" loading="lazy" style="background:#FFFFFF;">
+                <div style="font-family:var(--font-mono); font-size:0.68rem; color:#60A5FA; margin-top:0.3rem;">AFTER: Traced SVG</div>
+              </div>
+            </div>
+            <p class="bay-caption">
+              Thresholded via ImageMagick, traced into cubic Bézier curves by Potrace, and tinted to <code>brand.blue</code> (<code>#4285F4</code>).
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 07: /deck — Markdown Outline to Brand-Themed Slide Deck
+         ====================================================================== -->
+    <section id="bench-deck" class="bench-section heavy-section-deferred" aria-labelledby="title-deck">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-deck"><span class="skill-tag">/deck</span> Structured Markdown Outline → Brand-Themed 7-Slide Deck</h2>
+          <p class="section-desc">
+            Expands a plain Markdown outline (`fixtures/outline.md`) into a 7-slide Marp deck (`deck.md`) with speaker
+            notes and section dividers, then compiles it with brand CSS generated from `brand/tokens.json` into `deck.pdf`.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">outline.py</span>
+          <span class="engine-badge">build.py (Marp CLI v4.5.1)</span>
+          <span class="engine-badge">theme.py</span>
+        </div>
+      </div>
+
+      <div class="pipeline-strip">
+        <div class="pipeline-stage">
+          <span class="stage-role">1. ORIGINAL OUTLINE</span>
+          <span class="stage-artifact">fixtures/outline.md</span>
+          <span class="stage-note">Plain Markdown headings (<code>#</code>, <code>##</code>), bullets &amp; <code>Notes:</code></span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">2. REVIEWABLE MARP SOURCE</span>
+          <span class="stage-artifact">out/demo/deck.md (7 slides)</span>
+          <span class="stage-note">Slide breaks (<code>---</code>), layout classes &amp; footer directives</span>
+        </div>
+        <div class="pipeline-stage">
+          <span class="stage-role">3. RENDERED PDF &amp; SLIDE STRIP</span>
+          <span class="stage-artifact">out/demo/deck.pdf (52 KB)</span>
+          <span class="stage-note">Vector PDF + per-slide PNG contact strip</span>
+        </div>
+      </div>
+
+      <div class="optical-bay">
+        <div class="bay-toolbar">
+          <span class="bay-label">OPTICAL BAY 07 — Rendered Slide Pages from deck.pdf (Slides 1–4 of 7)</span>
+          <a href="assets/deck.pdf" download class="status-pill accent" style="text-decoration:none;">⬇ Download Full 7-Slide PDF (deck.pdf)</a>
+        </div>
+
+        <div class="grid-4">
+          <div class="bay-card">
+            <div class="bay-card-header"><span>SLIDE 01 (Title Cover)</span><span>16:9</span></div>
+            <img src="assets/slide-1.png" alt="Slide 1 title cover generated from outline.md" width="1280" height="720" loading="lazy">
+          </div>
+          <div class="bay-card">
+            <div class="bay-card-header"><span>SLIDE 02 (Section Divider)</span><span>16:9</span></div>
+            <img src="assets/slide-2.png" alt="Slide 2 section divider generated from outline.md" width="1280" height="720" loading="lazy">
+          </div>
+          <div class="bay-card">
+            <div class="bay-card-header"><span>SLIDE 03 (Content Slide)</span><span>16:9</span></div>
+            <img src="assets/slide-3.png" alt="Slide 3 bullet content slide generated from outline.md" width="1280" height="720" loading="lazy">
+          </div>
+          <div class="bay-card">
+            <div class="bay-card-header"><span>SLIDE 04 (Content Slide)</span><span>16:9</span></div>
+            <img src="assets/slide-4.png" alt="Slide 4 content slide generated from outline.md" width="1280" height="720" loading="lazy">
+          </div>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Original Input: fixtures/outline.md</span>
+            <a href="assets/outline.md" download>Download MD</a>
+          </div>
+          <pre class="spec-pre"># Creative Stack Demo
+Subtitle: Automated content production from plain text
+
+# 1. The Problem
+## Why GUI workflows bottleneck agents
+- Agents can read and write text, not click timelines
+- Re-recording for one typo wastes hours
+Notes: Keep this slide under 30 seconds.</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Intermediate Marp Deck: out/demo/deck.md</span>
+            <a href="assets/deck.md" download>Download Marp MD</a>
+          </div>
+          <pre class="spec-pre">---
+marp: true
+theme: google
+paginate: true
+footer: "creative-stack demo"
+---
+&lt;!-- _class: lead --&gt;
+# Creative Stack Demo
+Automated content production from plain text
+---</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         BENCH 08: /artgen & Global AI Assistant Matrix
+         ====================================================================== -->
+    <section id="bench-artgen" class="bench-section heavy-section-deferred" aria-labelledby="title-artgen">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 id="title-artgen"><span class="skill-tag">/artgen</span> Generative Media Endpoints &amp; Global AI Assistant Wiring</h2>
+          <p class="section-desc">
+            Connects Vertex AI (<code>ksp-sandbox</code>) and Gemini Developer API (macOS Keychain) for image generation,
+            Veo / Gemini Omni video, Lyria music, and Gemini / Chirp 3 HD speech, and wires all 8 skills + 3 MCP servers
+            across every AI coding assistant on this Mac.
+          </p>
+        </div>
+        <div class="engine-badges">
+          <span class="engine-badge">Vertex AI (ksp-sandbox)</span>
+          <span class="engine-badge">Chirp 3 HD (30 Voices)</span>
+          <span class="engine-badge">7 AI Harnesses Synced</span>
+        </div>
+      </div>
+
+      <div style="padding: 1.5rem 2rem;">
+        <div tabindex="0" role="region" aria-labelledby="harness-table-caption" class="table-wrapper">
+          <table style="--label-2: 'Skills Directory'; --label-3: 'MCP Configuration'; --label-4: 'Status &amp; Plugins';">
+            <caption id="harness-table-caption">Global AI Assistant &amp; Desktop Harness Configuration Matrix</caption>
+            <thead>
+              <tr>
+                <th scope="col">AI Assistant / Harness</th>
+                <th scope="col">Global Skills Symlink Path</th>
+                <th scope="col">Global &amp; Project MCP Config</th>
+                <th scope="col">Verified State &amp; Active Plugins</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Antigravity App (Antigravity.app)</th>
+                <td><code>~/.gemini/config/skills/</code> &amp; <code>~/.gemini/antigravity/skills/</code></td>
+                <td><code>~/.gemini/config/mcp_config.json</code> &amp; <code>~/.gemini/antigravity/mcp_config.json</code></td>
+                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP + 11 Plugins</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Jetski (Jetski.app / Antigravity IDE)</th>
+                <td><code>~/.gemini/config/skills/</code> (registered in <code>skills.json</code>)</td>
+                <td><code>~/.gemini/config/mcp_config.json</code></td>
+                <td><span class="status-pill ok">✓ Synced to ~/.gemini/jetski/plugin_data</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity CLI (agy)</th>
+                <td><code>~/.gemini/antigravity-cli/skills/</code> &amp; <code>~/.gemini/config/skills/</code></td>
+                <td><code>~/.gemini/config/mcp_config.json</code></td>
+                <td><span class="status-pill ok">✓ 9 Skills + anot8/blender/gimp MCP</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Claude Code (claude)</th>
+                <td><code>~/.claude/skills/</code></td>
+                <td><code>~/.claude.json</code> (global) &amp; <code>.mcp.json</code> (project)</td>
+                <td><span class="status-pill ok">✓ 9 Skills + document-skills &amp; example-skills</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Gemini CLI (gemini)</th>
+                <td><code>~/.gemini/skills/</code> &amp; <code>~/.agents/skills/</code></td>
+                <td><code>~/code/github/gemini-cli-config/settings.json</code> &amp; <code>.gemini/settings.json</code></td>
+                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP Servers</span></td>
+              </tr>
+              <tr>
+                <th scope="row">OpenAI Codex (codex)</th>
+                <td><code>~/.agents/skills/</code> &amp; <code>~/.codex/skills/</code></td>
+                <td><code>~/.codex/config.toml</code></td>
+                <td><span class="status-pill ok">✓ 9 Skills + TOML MCP entries</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Cursor</th>
+                <td>Reads <code>~/.claude/skills/</code></td>
+                <td><code>.cursor/mcp.json</code></td>
+                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP Servers</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="spec-grid">
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>/artgen voice.py Narration Chunk Plan: narration.plan.json</span>
+            <a href="assets/narration.plan.json" download>Download Plan JSON</a>
+          </div>
+          <pre class="spec-pre">{
+  "engine": "gemini",
+  "model": "gemini-3.8-flash-tts",
+  "mode": "narration",
+  "voice": "Charon",
+  "style": null,
+  "lang": "en-US",
+  "rate": 24000,
+  "chunks": [
+    {
+      "index": 0,
+      "text": "Welcome to Creative Stack. Every skill writes a reviewable intermediate file before rendering pixels or audio."
+    }
+  ]
+}</pre>
+        </div>
+        <div class="spec-box">
+          <div class="spec-box-header">
+            <span>Verified Live Vertex AI &amp; AI Studio Model Endpoints</span>
+            <span class="status-pill ok">10 / 10 Online</span>
+          </div>
+          <pre class="spec-pre">✓ vertex:gemini-3.1-flash-image         (image @global)
+✓ vertex:gemini-3.8-flash               (vision verifier @global)
+✓ vertex:gemini-omni-1.1-flash-preview  (video @global)
+✓ vertex:veo-3.1-generate-001           (video @us-central1)
+✓ vertex:lyria-002                      (music @us-central1)
+✓ vertex:gemini-3.1-flash-tts-preview   (speech @us-central1)
+✓ aistudio:gemini-3.1-flash-image       (image)
+✓ aistudio:gemini-3.8-flash             (vision)
+✓ aistudio:gemini-3.1-flash-tts-preview (speech)
+✓ texttospeech:chirp3-hd                (speech — 30 en-US voices)</pre>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div>Creative Stack Verification &amp; Transformation Report · Direction: "Optical Bench &amp; Cutting Room"</div>
+    <div>See also: <a href="../USER_GUIDE.md">docs/USER_GUIDE.md</a> · Generated on macOS arm64</div>
+  </footer>
+
+  <script>
+    // 1. Interactive Before/After Wipe Sliders
+    for (const slider of document.querySelectorAll('.wipe-slider')) {
+      const targetId = slider.dataset.target;
+      const stage = document.getElementById(targetId);
+      const output = document.getElementById('out-' + slider.id);
+      const update = () => {
+        const val = slider.value + '%';
+        if (stage) stage.style.setProperty('--wipe-pos', val);
+        if (output) output.textContent = val;
+      };
+      slider.addEventListener('input', update);
+    }
+
+    // 2. Respect prefers-reduced-motion for any autoplay media (modern-web-guidance: lazy-load-video-and-audio)
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    function syncReducedMotion(prefersReducedMotion) {
+      for (const video of document.querySelectorAll('video[autoplay]')) {
+        if (prefersReducedMotion) {
+          video.removeAttribute('autoplay');
+          video.pause();
+        }
+      }
+    }
+    syncReducedMotion(reducedMotionQuery.matches);
+    reducedMotionQuery.addEventListener('change', (event) => {
+      syncReducedMotion(event.matches);
+    });
+
+    // 3. IntersectionObserver fallback for browsers without native HTMLMediaElement.prototype.loading
+    // (modern-web-guidance: lazy-load-video-and-audio)
+    const supportsLazyMedia = Object.hasOwn(HTMLMediaElement.prototype, 'loading');
+    if (!supportsLazyMedia && 'IntersectionObserver' in window) {
+      const lazyMediaElements = document.querySelectorAll(
+        'video[loading="lazy"], audio[loading="lazy"][controls]'
+      );
+      const mediaObserver = new IntersectionObserver(
+        (entries, observer) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const media = entry.target;
+            if (media.dataset.poster) {
+              media.poster = media.dataset.poster;
+              delete media.dataset.poster;
+            }
+            if (media.dataset.preload) {
+              media.preload = media.dataset.preload;
+              delete media.dataset.preload;
+            }
+            media.load();
+            observer.unobserve(media);
+          }
+        },
+        { rootMargin: '200px 0px' }
+      );
+      for (const media of lazyMediaElements) {
+        if (media.hasAttribute('poster')) {
+          media.dataset.poster = media.getAttribute('poster');
+          media.removeAttribute('poster');
+        }
+        if (media.hasAttribute('preload') && media.getAttribute('preload') !== 'none') {
+          media.dataset.preload = media.getAttribute('preload');
+        }
+        media.preload = 'none';
+        mediaObserver.observe(media);
+      }
+    }
+  </script>
+</body>
+</html>

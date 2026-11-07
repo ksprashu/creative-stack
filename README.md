@@ -33,6 +33,8 @@ bash scripts/bootstrap.sh
 Underneath: 96 packages across 15 groups, headless bridges to Blender, Inkscape and GIMP, and
 three opt-in MCP servers.
 
+📖 **See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for the complete reference, per-skill CLI flags, intermediate file contracts, and multi-skill production recipes.**
+
 ---
 
 ## Install

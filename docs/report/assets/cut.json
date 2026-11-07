@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "source": "fixtures/rec.mp4",
+  "duration": 14.279292,
+  "fps": 30.0,
+  "width": 1280,
+  "height": 720,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 2.1983
+    },
+    {
+      "start": 4.4777,
+      "end": 7.2785
+    },
+    {
+      "start": 10.0377,
+      "end": 12.8785
+    }
+  ],
+  "tool": "autocut",
+  "threshold_db": -35.0,
+  "padding": 0.15,
+  "analysis": null,
+  "analysis_cuts": 0,
+  "kept": 7.84,
+  "removed": 6.439
+}

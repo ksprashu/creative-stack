@@ -1,0 +1,7 @@
+1
+00:00:00,200 --> 00:00:03,500
+Welcome to the Creative Stack production pipeline.
+
+2
+00:00:03,600 --> 00:00:07,500
+Every stage emits a reviewable intermediate file first.

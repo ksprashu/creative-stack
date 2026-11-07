@@ -1,0 +1,48 @@
+<REAPER_PROJECT 0.1 "7.0" 0
+  RIPPLE 0
+  RECORD_PATH "" ""
+  SAMPLERATE 48000 0 0
+  TEMPO 120 4 4
+  <TRACK
+    NAME "voice-clean"
+    VOLPAN 1.000000 0 -1 -1 1
+    MUTESOLO 0 0 0
+    <ITEM
+      POSITION 0.000000
+      LENGTH 7.841583
+      LOOP 0
+      NAME "voice-clean.wav"
+      <SOURCE WAVE
+        FILE "voice-clean.wav"
+      >
+    >
+  >
+  <TRACK
+    NAME "bed"
+    VOLPAN 0.251189 0 -1 -1 1
+    MUTESOLO 0 0 0
+    <ITEM
+      POSITION 0.000000
+      LENGTH 10.000000
+      LOOP 0
+      NAME "bed.wav"
+      <SOURCE WAVE
+        FILE "bed.wav"
+      >
+    >
+  >
+  <TRACK
+    NAME "sting"
+    VOLPAN 0.707946 0 -1 -1 1
+    MUTESOLO 0 0 0
+    <ITEM
+      POSITION 0.000000
+      LENGTH 5.143000
+      LOOP 0
+      NAME "sting.wav"
+      <SOURCE WAVE
+        FILE "sting.wav"
+      >
+    >
+  >
+>

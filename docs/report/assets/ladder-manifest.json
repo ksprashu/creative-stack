@@ -1,0 +1,35 @@
+{
+  "demo-annotated.png": {
+    "source": {
+      "width": 1000,
+      "height": 600
+    },
+    "outputs": [
+      {
+        "file": "demo-annotated-480.webp",
+        "width": 480,
+        "format": "webp",
+        "bytes": 3928
+      },
+      {
+        "file": "demo-annotated-480.png",
+        "width": 480,
+        "format": "png",
+        "bytes": 15330
+      },
+      {
+        "file": "demo-annotated-960.webp",
+        "width": 960,
+        "format": "webp",
+        "bytes": 10108
+      },
+      {
+        "file": "demo-annotated-960.png",
+        "width": 960,
+        "format": "png",
+        "bytes": 37388
+      }
+    ],
+    "srcset": "demo-annotated-480.webp 480w, demo-annotated-960.webp 960w"
+  }
+}

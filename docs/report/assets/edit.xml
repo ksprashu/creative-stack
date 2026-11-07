@@ -1,0 +1,115 @@
+<?xml version="1.0" ?>
+<xmeml version="4">
+    <project>
+        <name>rec</name>
+        <children>
+            <sequence id="sequence-1">
+                <name>rec</name>
+                <duration>235</duration>
+                <rate>
+                    <timebase>30</timebase>
+                    <ntsc>FALSE</ntsc>
+                </rate>
+                <media>
+                    <video>
+                        <format/>
+                        <track>
+                            <clipitem frameBlend="FALSE" id="clipitem-1">
+                                <file id="file-1">
+                                    <pathurl>file://localhost/fixtures/rec.mp4</pathurl>
+                                    <name>rec.mp4</name>
+                                    <rate>
+                                        <timebase>30</timebase>
+                                        <ntsc>FALSE</ntsc>
+                                    </rate>
+                                    <duration>428</duration>
+                                    <timecode>
+                                        <rate>
+                                            <timebase>30</timebase>
+                                            <ntsc>FALSE</ntsc>
+                                        </rate>
+                                        <string>00:00:00:00</string>
+                                        <frame>0</frame>
+                                        <displayformat>NDF</displayformat>
+                                    </timecode>
+                                    <media>
+                                        <video/>
+                                        <audio/>
+                                    </media>
+                                </file>
+                                <name>rec_001</name>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <duration>66</duration>
+                                <start>0</start>
+                                <end>66</end>
+                                <in>0</in>
+                                <out>66</out>
+                            </clipitem>
+                            <clipitem frameBlend="FALSE" id="clipitem-2">
+                                <file id="file-1"/>
+                                <name>rec_002</name>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <marker>
+                                    <name>cut 2.3s</name>
+                                    <in>134</in>
+                                    <out>134</out>
+                                </marker>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <duration>84</duration>
+                                <start>66</start>
+                                <end>150</end>
+                                <in>134</in>
+                                <out>218</out>
+                            </clipitem>
+                            <clipitem frameBlend="FALSE" id="clipitem-3">
+                                <file id="file-1"/>
+                                <name>rec_003</name>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <marker>
+                                    <name>cut 2.8s</name>
+                                    <in>301</in>
+                                    <out>301</out>
+                                </marker>
+                                <rate>
+                                    <timebase>30</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <duration>85</duration>
+                                <start>150</start>
+                                <end>235</end>
+                                <in>301</in>
+                                <out>386</out>
+                            </clipitem>
+                        </track>
+                    </video>
+                    <audio/>
+                </media>
+                <timecode>
+                    <rate>
+                        <timebase>30</timebase>
+                        <ntsc>FALSE</ntsc>
+                    </rate>
+                    <string>00:00:00:00</string>
+                    <frame>0</frame>
+                    <displayformat>NDF</displayformat>
+                </timecode>
+            </sequence>
+        </children>
+    </project>
+</xmeml>
