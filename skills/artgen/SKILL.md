@@ -1,10 +1,10 @@
 ---
 name: artgen
-description: Generate images, b-roll video and instrumental music from prompts using Gemini Image, Imagen, Veo and Lyria, over Vertex with an AI Studio fallback. Trigger via /artgen.
+description: Generate images, b-roll video, instrumental music and voiceover from prompts using Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD, over Vertex with an AI Studio fallback. Trigger via /artgen.
 disable-model-invocation: true
 ---
 
-# Artgen: Prompt to Picture, Clip and Score
+# Artgen: Prompt to Picture, Clip, Score and Voice
 
 The generative half of the stack. `/raster`, `/vector` and `/render3d` make things out of
 files you already have; this makes them out of a sentence.
@@ -53,11 +53,15 @@ Neither is required to be present — whichever is configured is the one that ge
    python3 scripts/video.py -p "slow dolly across a developer desk at dawn" \
      -o out/broll.mp4 --duration 6 --no-audio
    python3 scripts/video.py -p "the logo assembles from its parts" \
-     -i out/logo.png -o out/sting.mp4 --fast
+     -i out/logo.png -o out/sting.mp4 --veo
    ```
 
-   A clip takes one to four minutes; elapsed seconds are printed while it runs. `--image` makes
-   the still the first frame. `--no-audio` when `/sound` is going to score it anyway.
+   Gemini Omni Flash goes first, then Veo 3.1. Omni is Google's default video model now: one
+   synchronous call of thirty seconds to two minutes, 3–10s clips, sound included. Veo is a
+   long-running job of one to four minutes, with elapsed seconds printed while it runs. Use
+   `--veo` when the still has to be the **exact** first frame. Omni treats `--image` as a
+   reference it may reinterpret. `--no-audio` when `/sound` is going to score it anyway; on
+   Omni the track is stripped afterwards, because the model always scores its clips.
 
 4. **Music, when a generated MIDI bed is not enough:**
 
@@ -69,13 +73,32 @@ Neither is required to be present — whichever is configured is the one that ge
    Lyria returns a fixed clip of about 33 seconds. A longer `--duration` generates as many
    clips as it needs and crossfades them; the prompt holds the style steady across generations.
 
-5. **Pick a model deliberately only when you have a reason.** The chain already falls through
+5. **Voiceover, when there is a script but no recording:**
+
+   ```bash
+   python3 scripts/voice.py -i script.md -o out/voice.wav --voice Charon \
+     --style "warm, unhurried"
+   python3 scripts/voice.py -i dialogue.txt -o out/chat.wav --voices Kore,Puck
+   ```
+
+   The script is split at paragraphs and `out/voice.plan.json` is written before any audio.
+   A mispronounced word or a bad split is an edit to that file and a
+   `--from-plan out/voice.plan.json` re-run. A file where every line is `Name: words` with two
+   names becomes a two-voice dialogue; `--narration` reads such a file as prose. `--list-voices` prints the prebuilt voices.
+
+   `--engine chirp` swaps Gemini TTS for Cloud Text-to-Speech's Chirp 3 HD: the same voice
+   names, `--lang` for 40+ locales, and dialogue with any number of speakers. It takes no
+   `--style`, so reach for it when the read must stay level across a long script or the locale
+   is not English. Gemini TTS remains the default because only it can act.
+
+6. **Pick a model deliberately only when you have a reason.** The chain already falls through
    a 404, a 403 and a 429 to the next model and the other backend. `--model` heads the chain
-   with something specific; `--imagen` swaps in the Imagen family; `--backend vertex|aistudio`
+   with something specific (Imagen is shut down — its replacement, `gemini-3.1-flash-image`,
+   already heads the image chain); `--backend vertex|aistudio`
    pins the route.
 
-6. **Hand off.** Everything here writes a plain file and a `.txt` sidecar. `/raster ladder.py`
-   makes the responsive sizes, `/sound mix.py` masters the music, `/vidkit` cuts the clips
+7. **Hand off.** Everything here writes a plain file and a `.txt` sidecar. `/raster ladder.py`
+   makes the responsive sizes, `/sound clean.py` and `mix.py` master the music and the voice, `/vidkit` cuts the clips
    together, `/deck` puts the images on slides.
 
 ---
@@ -105,7 +128,10 @@ python3 scripts/video.py -i out/hero.png -o out/header.mp4 --duration 6 --no-aud
 python3 scripts/music.py -o out/bed.wav --duration 180 \
   -p "warm lo-fi hip hop, mellow rhodes chords, brushed drums, soft vinyl crackle, 84 bpm"
 
-# 5. master it under the narration — /artgen does not touch loudness
+# 5. narrate the companion video from its script
+python3 scripts/voice.py -i post/script.md -o out/voice.wav --style "friendly, measured"
+
+# 6. master it under the narration — /artgen does not touch loudness
 python3 ../sound/scripts/mix.py -v out/voice.wav -m out/bed.wav -o out/episode.wav --duck 14
 ```
 
@@ -117,6 +143,10 @@ python3 ../sound/scripts/mix.py -v out/voice.wav -m out/bed.wav -o out/episode.w
     absent from `us-central1`; Veo and Lyria are the other way round. Getting it wrong returns
     a 404 reading "your project does not have access", which sends you to the IAM console for a
     problem that is a region string. `genailib.vertex_location()` is the table.
+*   **NEVER** call Omni by its GA name only. Vertex's Interactions API rejects
+    `gemini-omni-1.1-flash` with a 400 and serves `gemini-omni-1.1-flash-preview`, while AI
+    Studio serves the GA name. The chain lists both so either backend lands on a model that
+    exists there.
 *   **NEVER** classify an API error by substring-matching the stringified exception. A Vertex
     404 body ends in a documentation URL containing the digits `500`, so a naive match treats a
     missing model as a transient server fault and retries it twice for nothing. Read `.code`
@@ -136,6 +166,13 @@ python3 ../sound/scripts/mix.py -v out/voice.wav -m out/bed.wav -o out/episode.w
     model drew the header, and a publisher asking for an AI-disclosure needs an answer.
 *   **NEVER** normalise or master audio here. `music.py` writes 48kHz stereo at whatever level
     Lyria produced; `/sound mix.py` is what ducks it under a voice and lands it on −14 LUFS.
+*   **NEVER** put delivery notes in a Gemini 3.8 TTS transcript. 3.8 reads `text` verbatim, so
+    "Say warmly: …" gets spoken aloud; style travels in `speech_metadata.style`. Earlier models
+    are the opposite and need the lead-in sentence — `voice.py request()` speaks both dialects,
+    and drops 3.8 from the chain when the installed google-genai cannot express its request.
+*   **NEVER** switch TTS models between chunks of one narration. The same voice name sounds
+    different on each model, and the seam is audible; `voice.py` pins whichever model answered
+    the first chunk to the head of the chain.
 *   **NEVER** treat a `--count` of images as free. Each one is a generation plus a verification
     call; a loop over eight section headers with the default settings is up to 48 model calls.
 *   **NEVER** use `/artgen` where `/vector` or `/render3d` would do. A diagram that has to be

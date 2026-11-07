@@ -23,7 +23,7 @@ SCRIPTS := scripts
 OUT     := out
 
 .DEFAULT_GOAL := help
-.PHONY: help install headless doctor check plan host skills lint demo demo-clean \
+.PHONY: help install headless doctor check plan host skills lint test demo demo-clean \
         demo-verify brewfile verify clean distclean
 
 ## ---------------------------------------------------------------- setup ---
@@ -58,6 +58,9 @@ host:  ## what this machine looks like to the stack
 
 lint:  ## validate skill structure and scan for committed secrets
 	$(PY) $(SCRIPTS)/validate_skills.py
+
+test:  ## unit tests for the skills' pure functions (stdlib only)
+	python3 -m unittest discover -s tests
 
 skills:  ## sync skills into ~/.claude/skills
 	$(PY) $(SCRIPTS)/validate_skills.py

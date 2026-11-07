@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!-- Copyright 2026 Creative Stack Contributors. Licensed under Apache-2.0. -->
+<!-- Title card. Params: kicker, title, subtitle, bg (CSS background; "none" for an overlay). -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="motion.css">
+<script src="motion.js"></script>
+<style>
+  body { background: var(--title-bg, var(--gradient-dusk)); }
+  html.alpha body { background: transparent; }
+
+  /* Two soft brand-coloured orbs drifting behind the type. Radial gradients,
+     not filter: blur() — a 90px blur on a frame-sized layer made every frame
+     cost ~300ms; a gradient looks the same and costs nothing. */
+  .orb {
+    position: absolute; border-radius: 50%; opacity: .6;
+    animation: drift calc(var(--dur) * 1s) linear both;
+  }
+  .orb.a { width: calc(1000 * var(--u)); height: calc(1000 * var(--u));
+           background: radial-gradient(closest-side, var(--brand-1), transparent);
+           left: -22vw; top: -34vh; }
+  .orb.b { width: calc(800 * var(--u)); height: calc(800 * var(--u));
+           background: radial-gradient(closest-side, var(--brand-4), transparent);
+           right: -16vw; bottom: -36vh; animation-direction: reverse; }
+  html.alpha .orb { display: none; }
+  @keyframes drift { from { transform: translate(0, 0) scale(1); }
+                     to { transform: translate(calc(80 * var(--u)), calc(40 * var(--u))) scale(1.12); } }
+
+  .stage {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 0 calc(var(--safe) * 2.2 * var(--u));
+    color: var(--on-bg);
+  }
+  .rule {
+    width: calc(120 * var(--u)); height: calc(8 * var(--u));
+    border-radius: calc(4 * var(--u));
+    background: linear-gradient(90deg, var(--brand-1) 0 25%, var(--brand-2) 25% 50%,
+                                       var(--brand-3) 50% 75%, var(--brand-4) 75%);
+    transform-origin: left center;
+    animation: grow-x .7s cubic-bezier(.2, .8, .2, 1) .1s both;
+    margin-bottom: calc(40 * var(--u));
+  }
+  .kicker {
+    font: 500 calc(30 * var(--u)) / 1.2 var(--font-body);
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent);
+    animation: rise .8s .25s both;
+    margin-bottom: calc(20 * var(--u));
+  }
+  .title {
+    font: 700 calc(124 * var(--u)) / 1.02 var(--font-display);
+    letter-spacing: -.025em; max-width: 16ch;
+    animation: rise 1s .4s both;
+  }
+  .subtitle {
+    font: 400 calc(40 * var(--u)) / 1.35 var(--font-body);
+    color: var(--muted); max-width: 40ch;
+    margin-top: calc(36 * var(--u));
+    animation: rise 1s .65s both;
+  }
+  .kicker, .title, .subtitle, .rule { animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+</style>
+</head>
+<body>
+  <div class="orb a"></div><div class="orb b"></div>
+  <div class="exit" style="position:absolute;inset:0">
+    <div class="stage">
+      <div class="rule"></div>
+      <div class="kicker" data-param="kicker"></div>
+      <div class="title" data-param="title"></div>
+      <div class="subtitle" data-param="subtitle"></div>
+    </div>
+  </div>
+</body>
+</html>

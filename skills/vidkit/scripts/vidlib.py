@@ -238,5 +238,20 @@ def clamp_cues(cues, duration, min_len=0.2):
     return out
 
 
+def write_chapters(path, chapters):
+    """[{start, title}] -> a YouTube-style chapters file."""
+    # YouTube wants M:SS, or H:MM:SS past an hour — the same shape
+    # timeline.py --chapters and publish.py --chapters read.
+    lines = []
+    for c in chapters:
+        total = int(c["start"])
+        hours, rest = divmod(total, 3600)
+        minutes, seconds = divmod(rest, 60)
+        stamp = (f"{hours}:{minutes:02d}:{seconds:02d}" if hours
+                 else f"{minutes}:{seconds:02d}")
+        lines.append(f"{stamp} {c['title']}")
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
 def tokens(profile=None):
     return brand.load(profile)

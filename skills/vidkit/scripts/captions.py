@@ -31,9 +31,22 @@ a soft track instead — this does both.
 Styles: `outline` (white text, dark outline — safest over busy screen
 recordings), `box` (solid brand surface behind the text), `pill` (box, rounded
 by margin padding — the social-video look).
+
+Animated styles, word by word, still one libass pass rather than a rendered
+overlay: `karaoke` sweeps the brand accent through each line as it is spoken
+(ASS \\kf); `highlight` lights only the current word, with a slight pop.
+
+    python3 captions.py -i cut.mp4 -s cut.srt -o out.mp4 --style highlight \\
+      --words talk.json
+
+Word timings come from whisper.cpp's full JSON (`-ojf`) via --words. Without it,
+or where the .srt was edited so its words no longer match, each cue's time is
+shared across its words by length — close enough to read naturally, and the
+edited .srt always wins over the transcript.
 """
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -42,8 +55,8 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-import hostenv  # noqa: E402
 from vidlib import die, ffmpeg, parse_srt, probe, tokens
+import hostenv  # noqa: E402  - importable once vidlib has set sys.path
 
 ASS_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -55,7 +68,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{size},{primary},{primary},{outline},{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_h},{margin_h},{margin_v},1
+Style: Default,{font},{size},{primary},{secondary},{outline},{back},{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},{margin_h},{margin_h},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -91,6 +104,121 @@ def escape_text(text, max_chars):
     return "\\N".join(lines[:3])          # 3 lines is already too many on screen
 
 
+def tag_color(hex_color):
+    """#RRGGBB -> the &HBBGGRR& form an inline \\c override wants."""
+    return "&H" + ass_color(hex_color)[4:] + "&"
+
+
+def ass_word(text):
+    return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
+
+
+def load_words(path):
+    """[[start, end, word]] from whisper.cpp's -ojf JSON.
+
+    whisper splits words into BPE tokens; a token that starts with a space
+    begins a word, anything else (`through` after ` Walk`, a trailing `.`)
+    continues the previous one. `[_BEG_]`-style specials are dropped.
+    """
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    words = []
+    for segment in doc.get("transcription", []):
+        for token in segment.get("tokens", []):
+            text = token.get("text", "")
+            if text.startswith("[_") or not text.strip():
+                continue
+            start = token["offsets"]["from"] / 1000
+            end = token["offsets"]["to"] / 1000
+            if text.startswith(" ") or not words:
+                words.append([start, end, text.strip()])
+            else:
+                words[-1][1] = end
+                words[-1][2] += text
+    if not words:
+        die(f"{path} has no token timings. It needs whisper's full JSON: "
+            "whisper-cli … -ojf (transcribe.py's plain -oj has none).")
+    return words
+
+
+def time_words(cue, words):
+    """[(start, end, word)] for one cue.
+
+    The transcript's timings are used only when they line up word-for-word
+    with the cue — after autocut shifts the timeline, or after a hand edit of
+    the .srt, they would highlight the wrong word, which is worse than an
+    estimate. The estimate shares the cue by word length, plus one for the gap.
+    """
+    text = re.sub(r"</?[bius]>", "", cue["text"]).split()
+    if not text:
+        return []
+    if words:
+        # w[1] > start drops the previous cue's last word when it ends just
+        # inside the 150ms lead-in; clamped, it would be an empty interval.
+        hits = [w for w in words
+                if cue["start"] - 0.15 <= w[0] < cue["end"] and w[1] > cue["start"]]
+        if len(hits) == len(text):
+            return [(max(w[0], cue["start"]), min(w[1], cue["end"]), word)
+                    for w, word in zip(hits, text)]
+    weights = [len(word) + 1 for word in text]
+    span, at, out = cue["end"] - cue["start"], cue["start"], []
+    for word, weight in zip(text, weights):
+        length = span * weight / sum(weights)
+        out.append((at, at + length, word))
+        at += length
+    return out
+
+
+def wrap_words(words, max_chars):
+    """Line-break indices for a word list, mirroring textwrap's greedy fill."""
+    breaks, width = set(), 0
+    for index, (_, _, word) in enumerate(words):
+        if width and width + 1 + len(word) > max_chars:
+            breaks.add(index)
+            width = len(word)
+        else:
+            width += len(word) + (1 if width else 0)
+    return breaks
+
+
+def animated_events(cue, words, style, accent, max_chars):
+    """Dialogue texts with start/end for one cue in karaoke or highlight style."""
+    timed = time_words(cue, words)
+    if not timed:
+        return []
+    breaks = wrap_words(timed, max_chars)
+
+    def joined(parts):
+        out = ""
+        for index, part in enumerate(parts):
+            if index:
+                out += "\\N" if index in breaks else " "
+            out += part
+        return out
+
+    if style == "karaoke":
+        # \kf sweeps SecondaryColour -> PrimaryColour over the word. Each word
+        # holds until the next starts, so the sweep never stalls mid-line.
+        lead = round((timed[0][0] - cue["start"]) * 100)
+        parts = []
+        for index, (start, end, word) in enumerate(timed):
+            until = timed[index + 1][0] if index + 1 < len(timed) else end
+            parts.append(f"{{\\kf{max(1, round((until - start) * 100))}}}{ass_word(word)}")
+        text = (f"{{\\k{lead}}}" if lead > 0 else "") + joined(parts)
+        return [(cue["start"], cue["end"], text)]
+
+    # highlight: one event per word, the whole line visible, the live word lit.
+    pop = f"{{\\c{tag_color(accent)}\\fscx108\\fscy108}}"
+    plain = [ass_word(w) for _, _, w in timed]
+    events = []
+    if timed[0][0] > cue["start"] + 0.01:
+        events.append((cue["start"], timed[0][0], joined(plain)))
+    for index, (start, _, _) in enumerate(timed):
+        until = timed[index + 1][0] if index + 1 < len(timed) else cue["end"]
+        lit = [f"{pop}{w}{{\\r}}" if i == index else w for i, w in enumerate(plain)]
+        events.append((start, until, joined(lit)))
+    return events
+
+
 def build_ass(cues, meta, style, opts):
     palette = opts["tokens"]["color"]["dark"]
     video = opts["tokens"]["video"]
@@ -109,10 +237,19 @@ def build_ass(cues, meta, style, opts):
         shadow = 0
         back = ass_color(palette["bg"], 0x1A)
 
+    text_color = ass_color(opts["color"] or palette["text"])
+    accent = opts.get("accent") or palette["accent"]
+    animated = style in ("karaoke", "highlight")
+    if style == "karaoke":
+        # Sung words take PrimaryColour, unsung ones SecondaryColour.
+        primary, secondary = ass_color(accent), text_color
+    else:
+        primary = secondary = text_color
+
     lines = [ASS_HEADER.format(
         width=width, height=height,
         font=opts["font"], size=size,
-        primary=ass_color(opts["color"] or palette["text"]),
+        primary=primary, secondary=secondary,
         outline=back if border_style == 3 else ass_color("#000000", 0x20),
         back=back,
         bold=-1 if opts["bold"] else 0,
@@ -122,6 +259,12 @@ def build_ass(cues, meta, style, opts):
         margin_v=margin_v,
     )]
     for cue in cues:
+        if animated:
+            for start, end, text in animated_events(
+                    cue, opts.get("words"), style, accent, opts["max_chars"]):
+                lines.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},"
+                             f"Default,,0,0,0,,{text}")
+            continue
         lines.append(f"Dialogue: 0,{ass_time(cue['start'])},{ass_time(cue['end'])},"
                      f"Default,,0,0,0,,{escape_text(cue['text'], opts['max_chars'])}")
     return "\n".join(lines) + "\n"
@@ -150,7 +293,12 @@ def main():
     ap.add_argument("--input", "-i", help="video to caption (omit with --ass-only)")
     ap.add_argument("--srt", "-s", required=True)
     ap.add_argument("--output", "-o", required=True)
-    ap.add_argument("--style", default="outline", choices=["outline", "box", "pill"])
+    ap.add_argument("--style", default="outline",
+                    choices=["outline", "box", "pill", "karaoke", "highlight"])
+    ap.add_argument("--words", help="whisper.cpp full JSON (-ojf) for real word "
+                    "timings in karaoke/highlight; estimated without it")
+    ap.add_argument("--accent", default=None,
+                    help="karaoke/highlight colour, #RRGGBB (default: brand accent)")
     ap.add_argument("--position", default="bottom", choices=["bottom", "top"])
     ap.add_argument("--soft", action="store_true",
                     help="mux a selectable subtitle track instead of burning in")
@@ -186,7 +334,12 @@ def main():
     font = args.font or theme["video"]["captionFont"]
     check_font(font)
 
+    words = load_words(args.words) if args.words else None
+    if words is not None and args.style not in ("karaoke", "highlight"):
+        print("⚠️  --words only affects --style karaoke / highlight")
+
     ass = build_ass(cues, meta, args.style, {
+        "words": words, "accent": args.accent,
         "tokens": theme, "font": font, "size": args.size, "color": args.color,
         "margin": args.margin, "max_chars": args.max_chars,
         "position": args.position, "bold": args.bold,

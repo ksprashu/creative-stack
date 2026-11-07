@@ -1,12 +1,13 @@
 # Creative Stack — Python dependencies (installed into .venv by scripts/bootstrap.sh)
 
 # --- AI generation -----------------------------------------------------------
-google-genai>=1.0.0          # Gemini / Imagen / Veo / Lyria, Vertex + AI Studio
+google-genai>=2.31           # Gemini / Veo / Lyria / TTS; 2.31 is the first to speak the 3.8 TTS schema
 google-cloud-aiplatform>=1.70 # Vertex ADC auth path
+google-cloud-texttospeech>=2.27 # Chirp 3 HD voices (voice.py --engine chirp)
 
 # --- imaging -----------------------------------------------------------------
 Pillow>=11.0
-rembg[cli]>=2.0              # background removal (ONNX, runs local)
+rembg[cpu,cli]>=2.0.60        # background removal (ONNX, local). [cli] alone ships no onnxruntime
 numpy>=1.26
 
 # --- video / timeline --------------------------------------------------------

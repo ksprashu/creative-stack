@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<!-- Copyright 2026 Creative Stack Contributors. Licensed under Apache-2.0. -->
+<!-- Lower third: name + role over footage. Params: name, role, side (left|right). -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="motion.css">
+<script src="motion.js"></script>
+<style>
+  .wrap {
+    position: absolute;
+    left: calc(var(--safe) * 1.5 * var(--u));
+    bottom: calc(var(--safe) * 2.2 * var(--u));
+    display: flex; align-items: stretch;
+  }
+  .wrap.right { left: auto; right: calc(var(--safe) * 1.5 * var(--u)); flex-direction: row-reverse; }
+
+  .bar {
+    width: calc(10 * var(--u));
+    border-radius: calc(5 * var(--u));
+    background: linear-gradient(180deg, var(--brand-1), var(--brand-4));
+    transform-origin: center bottom;
+    animation: grow-y .45s cubic-bezier(.2, .8, .2, 1) .05s both;
+  }
+  .panel {
+    margin: 0 calc(14 * var(--u));
+    padding: calc(22 * var(--u)) calc(36 * var(--u)) calc(24 * var(--u));
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    border-radius: calc(var(--radius) * var(--u));
+    box-shadow: 0 calc(18 * var(--u)) calc(48 * var(--u)) rgba(0, 0, 0, .35);
+    backdrop-filter: blur(calc(12 * var(--u)));
+    animation: reveal .6s cubic-bezier(.65, 0, .35, 1) .25s both;
+  }
+  .wrap.right .panel { animation-name: reveal-left; }
+  @keyframes reveal-left { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0 0 0 0); } }
+
+  .name {
+    font: 700 calc(52 * var(--u)) / 1.1 var(--font-display);
+    color: var(--on-surface); letter-spacing: -.01em; white-space: nowrap;
+    animation: rise .6s cubic-bezier(.2, .8, .2, 1) .5s both;
+  }
+  .role {
+    font: 400 calc(30 * var(--u)) / 1.3 var(--font-body);
+    color: var(--accent); white-space: nowrap;
+    margin-top: calc(6 * var(--u));
+    animation: rise .6s cubic-bezier(.2, .8, .2, 1) .62s both;
+  }
+  .exit { animation-name: lt-out; }
+  @keyframes lt-out { to { opacity: 0; transform: translateX(calc(-30 * var(--u))); } }
+</style>
+</head>
+<body>
+  <div class="exit" style="position:absolute;inset:0">
+    <div class="wrap" id="wrap">
+      <div class="bar"></div>
+      <div class="panel">
+        <div class="name" data-param="name"></div>
+        <div class="role" data-param="role"></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    if ((window.MOTION.params || {}).side === "right")
+      document.getElementById("wrap").classList.add("right");
+  </script>
+</body>
+</html>

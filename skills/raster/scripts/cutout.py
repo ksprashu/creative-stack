@@ -22,8 +22,9 @@ subject is an unreleased product or an internal console.
     python3 cutout.py -i product.jpg -o out/hero.png --backdrop hero --pad 80
     python3 cutout.py -i shots/ -o out/cut/ --recursive --shadow
 
-The first run downloads the u2net model (~170MB) into the rembg cache. That is
-a one-time cost; later runs are offline.
+The first run downloads the model into the rembg cache (~/.rembg/models): about
+930MB for the default birefnet-general, 220MB for birefnet-general-lite, 170MB
+for u2net. That is a one-time cost; later runs are offline.
 """
 
 import argparse
@@ -40,16 +41,27 @@ import brand  # noqa: E402
 
 GREEN, DIM, RESET = "\033[32m", "\033[2m", "\033[0m"
 
-# u2netp is a quarter the size and good enough for a clean product shot; u2net
-# is the default because a soft edge on a hero image is what people notice.
-MODELS = ("u2net", "u2netp", "isnet-general-use", "silueta")
+# BiRefNet (MIT) is the default because a soft edge on a hero image is what
+# people notice, and it holds hair, fur and thin cables where u2net — a 2020
+# model — leaves a halo. birefnet-general-lite is the speed/size compromise;
+# u2netp is still the smallest and good enough for a clean product shot.
+# bria-rmbg ships with rembg but is deliberately absent: its weights are
+# CC BY-NC, and nothing here should quietly make an output non-commercial.
+MODELS = ("birefnet-general", "birefnet-general-lite", "birefnet-portrait",
+          "birefnet-massive", "isnet-general-use", "u2net", "u2netp", "silueta")
+DEFAULT_MODEL = "birefnet-general"
 
 
 def load_rembg():
     try:
         from rembg import new_session, remove          # noqa: PLC0415
     except ImportError:
-        R.die("rembg not installed. Run: uv pip install --python .venv/bin/python rembg")
+        R.die("rembg not installed. Run: uv pip install --python .venv/bin/python 'rembg[cpu]'")
+    except SystemExit:
+        # rembg 2.0.6x+ exits at import when onnxruntime is absent, which is
+        # what a bare `rembg` or `rembg[cli]` install leaves behind.
+        R.die("rembg has no onnxruntime backend. Run: "
+              "uv pip install --python .venv/bin/python 'rembg[cpu]'")
     return new_session, remove
 
 
@@ -143,8 +155,8 @@ def main():
                     help="image, glob or directory")
     ap.add_argument("--output", "-o", required=True,
                     help="output PNG, or a directory for batch input")
-    ap.add_argument("--model", default="u2net", choices=MODELS,
-                    help="segmentation model (default u2net)")
+    ap.add_argument("--model", default=DEFAULT_MODEL, choices=MODELS,
+                    help=f"segmentation model (default {DEFAULT_MODEL})")
     ap.add_argument("--backdrop", help="named brand gradient, or '#hex,#hex'")
     ap.add_argument("--pad", type=int, default=0,
                     help="padding around the subject when using a backdrop")

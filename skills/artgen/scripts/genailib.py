@@ -48,12 +48,15 @@ GREEN, YELLOW, RED, DIM, RESET = (
 # Vertex serves different model families from different places, and asking the
 # wrong one returns a 404 that reads like "your project has no access" rather
 # than "wrong region". Gemini 3 image models are `global`-only; Veo and Lyria
-# are regional and are not in `global` at all. Getting this wrong is the single
-# most confusing failure in the whole skill, so it is a table, not a default.
+# are regional and are not in `global` at all. The TTS models split the same
+# way: the 3.1 preview is listed only in us-central1, the 2.5 models in global.
+# Getting this wrong is the single most confusing failure in the whole skill,
+# so it is a table, not a default. First prefix match wins — keep the specific
+# entries above the bare "gemini".
 _LOCATIONS = [
     ("veo", "us-central1"),
     ("lyria", "us-central1"),
-    ("imagen", "us-central1"),
+    ("gemini-3.1-flash-tts", "us-central1"),
     ("gemini", "global"),
 ]
 DEFAULT_LOCATION = "global"

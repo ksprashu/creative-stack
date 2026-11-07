@@ -5,8 +5,8 @@ Invariants for anyone — human or model — changing this repo.
 ## What this is
 
 A portable content-production toolchain plus eight agent skills. It targets macOS, Arch and
-Debian/Ubuntu from a clean machine, and Claude Code, Codex, Gemini CLI, Antigravity, opencode
-and Cursor from a clean profile. Portability is a feature, not a nice-to-have: a change that
+Debian/Ubuntu from a clean machine, and Claude Code, Codex, Gemini CLI, Antigravity and
+Cursor from a clean profile. Portability is a feature, not a nice-to-have: a change that
 only works on the machine — or in the harness — you tested it on is a bug.
 
 ## The three chokepoints
@@ -44,7 +44,7 @@ Named `hostenv`, not `platform`, because skill scripts put `scripts/` on `sys.pa
     evidence of another owner, not of staleness. The same applies to the `skills.json`
     registries: merge, never rewrite.
 *   **Only write where a harness is installed.** The one exception is `~/.agents/skills`, the
-    vendor-neutral directory Codex and opencode both document, which is created unconditionally
+    vendor-neutral directory Codex documents, which is created unconditionally
     so a freshly imaged box has the skills waiting before any agent CLI has ever run.
 *   **Verify by `provides`, not by the package database.** A tool installed by any route counts.
     Use `hostenv.which()` rather than `shutil.which()` — it also looks in the directories
@@ -215,16 +215,42 @@ Do not re-discover these.
 *   A tool check has to accept alternative spellings (`magick|convert`, `bat|batcat`,
     `grim|maim`), the same way the manifest's `provides` is a list. Demanding one exact name was
     the only hard failure on an otherwise healthy Ubuntu 24.04.
+*   **A global `npm install` is one transaction.** One failing postinstall (opencode-ai's
+    platform binary) rolls back every package named in the same call, so mermaid-cli vanished
+    alongside it. `do_install` retries each package alone when a batch fails.
+*   **`rembg[cli]` installs no inference backend.** Since 2.0.8x onnxruntime lives in the
+    `cpu`/`gpu` extras, and without one `cutout.py` dies at import. Hence `rembg[cpu,cli]`.
+*   **Skill scripts must import `vidlib` (or their `*lib`) before `hostenv`.** Importing the
+    lib is what puts `scripts/` on `sys.path`; the other order works under a harness that set
+    `PYTHONPATH` and fails standalone. Check with `--help` on every script.
+*   **Gemini model names differ by backend.** Vertex's Interactions API rejects the GA
+    `gemini-omni-1.1-flash` and serves `-preview`; Lyria 3.5 is AI Studio only at the time of
+    writing. And **`models.list()` is not the truth**: Vertex omits `gemini-3.8-flash-tts`
+    from the listing and serves it anyway. Chains list every name and let a 400/404 fall
+    through; check the deprecations page via the Gemini docs MCP before trusting a model ID.
+*   **Homebrew 7 asks before installing, and `.pkg` casks want sudo mid-install.** Without
+    `HOMEBREW_NO_ASK=1` every install waits on a `[y/N]`, and a `!`-prefixed agent shell can
+    answer neither that nor a password. Heavy casks (MacTeX, ~6GB) install alone and last: in
+    a batch they ran it past the one-hour timeout and took eight finished casks with them.
+*   **Never symlink into a macOS `.app` bundle.** The bundle finds its plug-ins from the path
+    it was started by; through `~/.local/bin` GIMP 3.2 loads no batch interpreter and then
+    idles forever, because 3.2 also ignores `(gimp-quit 0)` — only `--quit` ends it.
+    `install_bridges.py` writes `exec` wrappers for bundle binaries instead.
+*   **JPEG frames are full range.** Piping Chromium JPEGs into libx264 with only
+    `-pix_fmt yuv420p` keeps the `yuvj` range tag, and players that honour it show the clip
+    washed out against camera footage. `motion.py` scales to `tv` range and tags BT.709.
+*   **A redaction inside the object's outline leaves the outline.** Pixelating the polygon of
+    a word left it readable from the glyph silhouettes. `segment.py` paints hiding ops over
+    each match's box and floors pixelate blocks at half the region's short side.
 
 ## Harness gotchas already paid for
 
 *   Codex's documented user-level skills path is `~/.agents/skills`, **not** `~/.codex/skills`
-    (that holds `config.toml`). opencode and Cursor have no directory of their own at all —
-    both read `~/.claude/skills`, so linking into their config dirs as well would register
-    every skill two or three times in one picker.
-*   The three MCP config dialects are not interchangeable: `mcpServers` (Claude Code, Gemini
-    CLI, Cursor) splits command from args; opencode's `mcp` block wants one argv list and is
-    the only non-Claude format with an `enabled` flag; Codex uses TOML `[mcp_servers.x]`.
+    (that holds `config.toml`). Cursor has no directory of its own at all —
+    it reads `~/.claude/skills`, so linking into its config dir as well would register
+    every skill twice in one picker.
+*   The MCP config dialects are not interchangeable: `mcpServers` (Claude Code, Gemini CLI,
+    Cursor) splits command from args; Codex uses TOML `[mcp_servers.x]`.
 *   Only `.mcp.json` is documented to expand `${HOME}`. Every other generated MCP config gets a
     real absolute path and is gitignored — `install_mcp.py` regenerates it per machine.
 *   `claude mcp list` answers for one harness and only when that harness is installed. The
@@ -243,6 +269,7 @@ python3 scripts/hostenv.py                 # does this machine resolve correctly
 python3 scripts/packages.py --plan         # does every package have a route
 python3 scripts/doctor.py --quick          # nothing regressed
 python3 scripts/validate_skills.py         # skills still lint
+python3 -m unittest discover -s tests     # pure-function unit tests (stdlib only)
 python3 scripts/sync_skills.py --list      # which harnesses are detected here
 bash    scripts/verify_linux.sh            # clean Arch + Ubuntu, in containers
 make demo                                  # six artefacts land in out/

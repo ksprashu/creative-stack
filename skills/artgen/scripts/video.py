@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate a short video clip from a prompt, or animate a still, with Veo.
+"""Generate a short video clip from a prompt, or animate a still, with Gemini Omni or Veo.
 
     python3 video.py -p "slow dolly across a developer desk at dawn" -o out/b-roll.mp4
     python3 video.py -p "the logo assembles from its parts" -i logo.png -o out/sting.mp4
@@ -28,6 +28,9 @@ four. The poll loop prints elapsed time so a stall is visibly a stall.
 """
 
 import argparse
+import base64
+import contextlib
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -37,16 +40,30 @@ import genailib as G  # noqa: E402
 
 # Quality first. `--fast` reorders this rather than replacing it, so a fast
 # render that is refused still falls through to a slower model that works.
-MODEL_SEQUENCE = [
+# Gemini Omni Flash leads: since its GA on 27 Aug 2026 the Gemini docs name it
+# the default video model, ahead of Veo. It goes by two names because the
+# backends disagree — AI Studio serves the GA `gemini-omni-1.1-flash`, while
+# Vertex's Interactions API rejects that name with a 400 and serves only
+# `-preview` (at `global`). Listing both costs one fast refusal per run.
+#
+# Veo stays as the fallback and as the pick for what Omni lacks: an exact
+# first frame, scene extension, last-frame control. `--veo` skips Omni.
+# Veo 2.0 is gone from the chain: no audio, visibly older, and shut down on
+# the Gemini API in June 2026. The 3.0 pair stays only because Vertex still
+# serves it; AI Studio retired it on the same date and will 404 through.
+OMNI_SEQUENCE = ["gemini-omni-1.1-flash", "gemini-omni-1.1-flash-preview"]
+VEO_SEQUENCE = [
     "veo-3.1-generate-001",
     "veo-3.1-fast-generate-001",
+    "veo-3.1-lite-generate-001",
     "veo-3.0-generate-001",
     "veo-3.0-fast-generate-001",
-    "veo-2.0-generate-001",
 ]
-FAST_FIRST = ["veo-3.1-fast-generate-001", "veo-3.0-fast-generate-001"]
+MODEL_SEQUENCE = OMNI_SEQUENCE + VEO_SEQUENCE
+FAST_FIRST = ["veo-3.1-fast-generate-001", "veo-3.1-lite-generate-001",
+              "veo-3.0-fast-generate-001"]
 
-# Veo accepts only these two. Anything else is silently letterboxed, which is
+# Veo and Omni both accept only these two. Anything else is silently letterboxed, which is
 # worse than being told no.
 ASPECTS = ["16:9", "9:16"]
 POLL_SECONDS = 10
@@ -58,8 +75,82 @@ def _mime_ok(path):
             ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(suffix)
 
 
+def omni_call(args, prompt, client, model):
+    """One Omni clip via the Interactions API — synchronous, no polling.
+
+    Omni has no duration, seed, audio or negative-prompt fields, so they go
+    into the prompt or into post-processing. And it treats an image as a
+    reference it may reinterpret, not as a guaranteed first frame; when that
+    matters, `--veo` is the honest choice.
+    """
+    text = (f"{prompt}\n\nLength: {args.duration} seconds."
+            + (f" Avoid: {args.negative}." if args.negative else "")
+            + (" Use the attached image as the opening frame."
+               if args.image else ""))
+    parts = [{"type": "text", "text": text}]
+    if args.image:
+        parts.insert(0, {"type": "image",
+                         "data": base64.b64encode(Path(args.image).read_bytes()).decode(),
+                         "mime_type": _mime_ok(args.image)})
+    # Inline delivery caps out at 4MB, which an 8s 1080p clip passes, so on
+    # AI Studio ask for a Files API uri instead. Vertex has no Files API and
+    # stays inline; a uri coming back from it anyway is handled below.
+    response_format = {"type": "video", "aspect_ratio": args.ar,
+                       "resolution": args.resolution}
+    if not client.vertexai:
+        response_format["delivery"] = "uri"
+    interaction = client.interactions.create(
+        model=model, input=parts, timeout=args.timeout,
+        response_format=response_format)
+    video = getattr(interaction, "output_video", None)
+    if video is None:
+        return None
+    if getattr(video, "data", None):
+        data = video.data
+        return base64.b64decode(data) if isinstance(data, str) else data
+    uri = getattr(video, "uri", None)
+    if not uri:
+        return None
+    if client.vertexai:
+        G.warn(f"{model} returned {uri} rather than bytes — not fetched")
+        return None
+    return fetch_file(client, uri, args.timeout)
+
+
+def fetch_file(client, uri, timeout):
+    """Wait for a Files API video to go ACTIVE, download it, then delete it."""
+    name = f"files/{uri.rstrip('/').split('/')[-1].split(':')[0]}"
+    started = time.time()
+    try:
+        while True:
+            info = client.files.get(name=name)
+            state = info.state.name if info.state else None   # optional in the SDK
+            if state == "ACTIVE":
+                return client.files.download(file=uri)
+            if state == "FAILED":
+                G.warn(f"{name} failed processing")
+                return None
+            if time.time() - started > timeout:
+                G.warn(f"{name} still {state} after {timeout}s — giving up")
+                return None
+            time.sleep(POLL_SECONDS / 2)
+    finally:
+        with contextlib.suppress(Exception):    # files expire in 48h anyway
+            client.files.delete(name=name)
+
+
+def strip_audio(path):
+    """Omni always scores its clips; --no-audio has to be done afterwards."""
+    sys.path.insert(0, str(G.REPO_ROOT / "skills/vidkit/scripts"))
+    import vidlib  # noqa: PLC0415
+    silent = path.with_name(f".{path.stem}-silent{path.suffix}")
+    subprocess.run([vidlib.need("ffmpeg"), "-v", "error", "-y", "-i", str(path),
+                    "-c:v", "copy", "-an", str(silent)], check=True)
+    silent.replace(path)
+
+
 def generate(args, prompt):
-    """Poll one Veo operation to completion and return the clip bytes."""
+    """One clip: Omni in a single call, or a Veo operation polled to completion."""
     _, types = G.load_genai()
 
     source_image = None
@@ -80,6 +171,8 @@ def generate(args, prompt):
         **({"seed": args.seed} if args.seed is not None else {}))
 
     def call(client, model):
+        if model.startswith("gemini-omni"):
+            return omni_call(args, prompt, client, model)
         # `source=` rather than prompt=/image=: the flat arguments are
         # deprecated in google-genai and will be removed, and the SDK warns
         # about it on every single call.
@@ -122,11 +215,15 @@ def generate(args, prompt):
 
 
 def models(args):
+    sequence = VEO_SEQUENCE if args.veo else MODEL_SEQUENCE
     if args.model:
-        return G.chain_for(args.model, MODEL_SEQUENCE)
+        return G.chain_for(args.model, sequence)
     if args.fast:
-        return FAST_FIRST + [m for m in MODEL_SEQUENCE if m not in FAST_FIRST]
-    return list(MODEL_SEQUENCE)
+        # Omni is already the quick one — a Flash model, one call, no queue —
+        # so fast means "Omni, then the fast Veo variants".
+        head = ([] if args.veo else OMNI_SEQUENCE) + FAST_FIRST
+        return head + [m for m in sequence if m not in head]
+    return list(sequence)
 
 
 def main():
@@ -135,12 +232,13 @@ def main():
     ap.add_argument("--prompt", "-p", required=True)
     ap.add_argument("--output", "-o", required=True, help="MP4 to write")
     ap.add_argument("--image", "-i",
-                    help="a still to animate — becomes the first frame")
+                    help="a still to animate — the exact first frame on Veo, "
+                         "a strong reference on Omni")
     ap.add_argument("--ar", default="16:9", choices=ASPECTS)
     ap.add_argument("--resolution", default="1080p",
                     choices=["720p", "1080p"])
     ap.add_argument("--duration", type=int, default=8,
-                    help="seconds of clip (Veo 3 supports 4-8)")
+                    help="seconds of clip (Omni 3-10, Veo 3 4-8)")
     ap.add_argument("--count", "-n", type=int, default=1,
                     help="how many takes; each is a separate long-running job")
     ap.add_argument("--negative", help="what must not appear")
@@ -150,6 +248,9 @@ def main():
     ap.add_argument("--fast", action="store_true",
                     help="prefer the fast Veo variants (quicker, cheaper, "
                          "less detailed)")
+    ap.add_argument("--veo", action="store_true",
+                    help="Veo only — for an exact first frame, or when Omni "
+                         "is not enabled on the project")
     ap.add_argument("--model", help="pin the primary model")
     ap.add_argument("--timeout", type=int, default=600,
                     help="seconds to wait for one clip before moving on")
@@ -181,6 +282,8 @@ def main():
                   else out.with_name(f"{out.stem}-{index + 1}{out.suffix}"))
         data, model, backend = generate(args, prompt)
         target.write_bytes(data)
+        if args.no_audio and model.startswith("gemini-omni"):
+            strip_audio(target)
         G.provenance(target, prompt, model, backend)
         G.report(target, f"{backend}/{model}")
     return 0

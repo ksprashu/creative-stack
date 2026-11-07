@@ -258,18 +258,11 @@ def read_json(path):
 def render(fmt, servers):
     """One server map in one harness's dialect.
 
-    The three shapes are not interchangeable. `mcpServers` splits the command
-    from its arguments; opencode wants a single argv list and, crucially,
-    supports `enabled` — which is the only way any harness besides Claude Code
-    lets a server be declared without being started.
+    The shapes are not interchangeable: `mcpServers` splits the command from
+    its arguments, Codex's TOML is printed rather than written.
     """
     if fmt == "mcpServers":
         return {"mcpServers": {n: dict(s) for n, s in servers.items()}}
-    if fmt == "opencode":
-        return {"mcp": {n: {"type": "local",
-                            "command": [s["command"], *s["args"]],
-                            "enabled": False}
-                        for n, s in servers.items()}}
     raise ValueError(f"no writer for format {fmt!r}")
 
 

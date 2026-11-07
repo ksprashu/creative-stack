@@ -1,6 +1,6 @@
 ---
 name: raster
-description: Batch image editing, responsive size and format ladders, background removal and brand compositing — reproducible pipelines instead of one-off GUI passes. Trigger via /raster.
+description: Batch image editing, responsive size and format ladders, background removal, select-by-description masking for images and video, and brand compositing — reproducible pipelines instead of one-off GUI passes. Trigger via /raster.
 disable-model-invocation: true
 ---
 
@@ -8,7 +8,8 @@ disable-model-invocation: true
 
 The image jobs that are tedious once and unbearable a hundred times: resizing, cropping to
 aspect, rounding corners, stripping metadata, building a `srcset`, cutting a subject out of
-its background.
+its background, and blurring or lifting out *one particular thing* you can describe but not
+draw a box around.
 
 ---
 
@@ -78,7 +79,33 @@ being a pipeline.
      --backdrop hero --pad 80 --shadow
    ```
 
-6. **Drop to GIMP** only for the genuinely layered case:
+   The default model is BiRefNet (`birefnet-general`, MIT), which keeps hair, fur and thin
+   cables that u2net haloes. The first run downloads ~930MB; `--model birefnet-general-lite`
+   (~220MB) or `u2netp` when size or speed matters more than the edge.
+
+6. **Select by description** when the subject is not "whatever is in front", but *the mug on
+   the left*, *every face*, *the token in the terminal*:
+
+   ```bash
+   python3 scripts/segment.py -i desk.png -q "the red mug" --cutout out/mug.png --refine sam2
+   python3 scripts/segment.py -i shot.png -q "the API key" --op fill -o out/safe.png --grow 8
+   python3 scripts/segment.py -i demo.mp4 -q "the email address" --at 2 --op blur -o out/demo.mp4
+   ```
+
+   Gemini finds the matches and writes `<output>.segments.json` (box and polygon per match,
+   0-1000) *before* touching pixels. A wrong match is an edit to that file, or `--only 0,2`,
+   then a `--from-json` re-run — no second model call. Ops are `blur`, `pixelate`, `fill`,
+   `erase` (to transparency); `--mask` writes the matte itself. Blur, pixelate and fill cover
+   each match's whole box by default (`--shape mask` to follow the outline), and pixelate never
+   uses blocks smaller than half the region — a word's outline is often enough to read it.
+
+   Gemini's polygons are fine for blur and fill. For a cutout edge, `--refine sam2` hands each
+   box to SAM 2 locally. **Video is always SAM 2**: objects are found on the frame at `--at`
+   seconds and tracked forwards and backwards through the clip; audio is copied untouched.
+   SAM 2 needs the optional ML deps once:
+   `uv pip install --python .venv/bin/python -r requirements-ml.txt`.
+
+7. **Drop to GIMP** only for the genuinely layered case:
 
    ```bash
    gimp-console -idf --batch-interpreter python-fu-eval \
@@ -107,6 +134,10 @@ python3 scripts/ladder.py -i out/clean/ -o out/img/ \
 # 4. the product shot on a brand gradient for the hero
 python3 scripts/cutout.py -i raw/device.jpg -o out/img/hero.png \
   --backdrop hero --pad 96 --shadow --alpha-matting
+
+# 5. one capture shows a colleague's email in a sidebar — find it, check the JSON, blur it
+python3 scripts/segment.py -i out/clean/step-07.png -q "the email address in the sidebar" \
+  --op blur --grow 10 -o out/clean/step-07-safe.png
 ```
 
 `out/img/manifest.json` then carries every output, its byte size and the `srcset` string per
@@ -133,5 +164,14 @@ redacts tokens. `/raster` is the batch pass afterwards.
     device names, and on macOS sometimes the window title of whatever was behind it.
 *   **NEVER** run `cutout.py` against a remote service. rembg runs locally and the image never
     leaves the machine — that is the entire reason it is the tool here rather than an API.
+*   **NEVER** pixelate or blur a secret that has to stay secret. Both keep some of the
+    original signal and both have been reversed in public; `--op fill` keeps none.
+*   **NEVER** trust `segment.py` as the only redaction pass on something going public. A
+    description can miss a second occurrence; `/shot` redacts by pattern, and the
+    `.segments.json` is there to be read before the image ships.
+*   **NEVER** add Ultralytics/YOLO for detection. It is AGPL-3.0, which would reach every
+    script that imports it; Gemini finds the objects and SAM 2 (Apache-2.0) draws the edges.
+*   **NEVER** offer `bria-rmbg` in `cutout.py` even though rembg ships it. Its weights are
+    CC BY-NC, and a default should never quietly make an output non-commercial.
 *   **NEVER** batch-edit in place. Always write to a separate `-o` directory; there is no undo
     and the source capture is usually unrepeatable.

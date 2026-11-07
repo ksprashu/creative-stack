@@ -1,0 +1,43 @@
+/* Copyright 2026 Creative Stack Contributors
+   Licensed under the Apache License, Version 2.0. See LICENSE.
+
+   Shared base for /vidkit motion templates. Sizes are authored in 1080p pixels
+   and multiplied by --u, so a template renders the same at 720p, 4K or a
+   1080x1920 vertical: --u is 1 whenever the short edge is 1080px. */
+
+:root {
+  --u: calc(min(100vw, 100vh) / 1080);
+  --dur: 5;
+  --out: 0.7;           /* seconds the exit animation takes */
+  --page-bg: transparent;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--page-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+[hidden] { display: none !important; }
+
+/* Every animated element fills both ends so a frame before its delay shows the
+   first keyframe, not the element's resting state. */
+.anim { animation-fill-mode: both; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+
+/* The exit starts --out seconds before the end of the clip. */
+.exit {
+  animation: fade-out calc(var(--out) * 1s) cubic-bezier(.4, 0, .6, 1) both;
+  animation-delay: calc((var(--dur) - var(--out)) * 1s);
+}
+
+@keyframes fade-out { to { opacity: 0; transform: translateY(calc(-12 * var(--u))); } }
+@keyframes rise { from { opacity: 0; transform: translateY(calc(48 * var(--u))); } to { opacity: 1; transform: none; } }
+@keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
