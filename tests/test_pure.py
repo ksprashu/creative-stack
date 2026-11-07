@@ -23,6 +23,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -152,6 +153,16 @@ class VoiceTest(unittest.TestCase):
         chunks = voice.chunk_dialogue([("A", line), ("B", line), ("A", "short")])
         self.assertEqual([len(c["turns"]) for c in chunks], [1, 2])
 
+    def test_tts_chain_puts_primary_first(self):
+        chain = voice.tts_chain("gemini-2.5-pro-tts", True)
+        self.assertEqual(chain[0], "gemini-2.5-pro-tts")
+        self.assertEqual(sorted(chain), sorted(voice.SEQUENCE))
+
+    def test_tts_chain_drops_3_8_on_an_old_sdk_even_when_asked_for(self):
+        chain = voice.tts_chain("gemini-3.8-pro-tts", False)
+        self.assertTrue(chain)
+        self.assertTrue(all(voice.version(m) < 3.8 for m in chain), chain)
+
     def test_build_plan_gives_two_speakers_distinct_voices(self):
         script = "A: hi there\nB: hello back\n"
         plan = voice.build_plan(script, Args(engine="gemini"))
@@ -190,6 +201,20 @@ class SegmentTest(unittest.TestCase):
     def test_video_meta_rejects_audio_only(self):
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             self.probe({"streams": []})
+
+    def test_video_erase_gets_the_video_message_not_the_png_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "demo.mp4"
+            clip.write_bytes(b"")
+            record = Path(tmp) / "demo.segments.json"
+            record.write_text("{}")
+            argv = ["segment.py", "-i", str(clip), "--from-json", str(record),
+                    "--op", "erase", "-o", str(Path(tmp) / "out.mp4")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(segment.R, "die", side_effect=SystemExit) as die, \
+                    self.assertRaises(SystemExit):
+                segment.main()
+        self.assertIn("no alpha channel", die.call_args.args[0])
 
 
 if __name__ == "__main__":

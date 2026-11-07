@@ -270,16 +270,21 @@ def to_pcm(data, mime):
     return data, int(match.group(1)) if match else RATE
 
 
+def tts_chain(primary, new_shape):
+    """The fallback chain, `primary` first. The SDK filter runs last, so an
+    asked-for 3.8 model is dropped too, not put back at the head."""
+    chain = G.chain_for(primary, SEQUENCE) if primary else list(SEQUENCE)
+    return chain if new_shape else [m for m in chain if version(m) < 3.8]
+
+
 def synthesise(plan, args):
     """[(pcm, rate)] for every chunk, plus the model/backend that answered."""
     _, types = G.load_genai()
-    sequence = SEQUENCE
-    if not sdk_has_new_shape(types):
-        sequence = [m for m in SEQUENCE if version(m) < 3.8]
+    new_shape = sdk_has_new_shape(types)
+    if not new_shape:
         G.warn("google-genai is too old for the Gemini 3.8 TTS request shape — "
                "skipping 3.8. Upgrade: uv pip install -U google-genai")
-    primary = args.model or plan.get("model")
-    chain = G.chain_for(primary, sequence) if primary else sequence
+    chain = tts_chain(args.model or plan.get("model"), new_shape)
 
     def call_for(chunk):
         def call(client, model):

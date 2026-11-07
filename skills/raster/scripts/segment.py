@@ -400,12 +400,11 @@ def track(frames, items, at_frame, size_name, boxes):
 
 def process_video(args, src, record):
     """Detect on one frame, track with SAM 2, apply the op frame by frame."""
-    import numpy as np                                   # noqa: PLC0415
-    from PIL import Image, ImageFilter                   # noqa: PLC0415
-
     if args.op == "erase" or args.cutout:
         R.die("video output has no alpha channel here — use --op blur, "
               "pixelate or fill, or --mask for a matte")
+    import numpy as np                                   # noqa: PLC0415
+    from PIL import Image, ImageFilter                   # noqa: PLC0415
     width, height, fps = video_meta(src)
     scale = min(1.0, TRACK_MAX_SIDE / max(width, height))
     small = (max(2, round(width * scale / 2) * 2), max(2, round(height * scale / 2) * 2))
@@ -538,12 +537,6 @@ def main():
         R.die(f"--op {args.op} needs --output")
     if not (args.op or args.mask or args.cutout or args.json):
         R.die("nothing to write — pass --op/-o, --mask, --cutout or --json")
-    for path in (args.cutout, args.op == "erase" and args.output):
-        if path and Path(path).suffix.lower() != ".png":
-            R.die(f"{path}: transparency needs a .png")
-
-    from PIL import Image, ImageFilter                   # noqa: PLC0415
-
     src = Path(args.input)
     if not src.exists():
         R.die(f"no such file: {src}")
@@ -553,6 +546,13 @@ def main():
         record = (json.loads(Path(args.from_json).read_text())
                   if args.from_json else None)
         return process_video(args, src, record)
+    # After the video branch, which has its own message for erase and cutout.
+    for path in (args.cutout, args.op == "erase" and args.output):
+        if path and Path(path).suffix.lower() != ".png":
+            R.die(f"{path}: transparency needs a .png")
+
+    from PIL import Image, ImageFilter                   # noqa: PLC0415
+
     image = Image.open(src)
     image.load()
 
