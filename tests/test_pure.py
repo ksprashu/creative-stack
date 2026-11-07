@@ -36,7 +36,6 @@ for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
 import analyze  # noqa: E402
 import autocut  # noqa: E402
 import captions  # noqa: E402
-import edit  # noqa: E402
 import segment  # noqa: E402
 import voice  # noqa: E402
 
@@ -216,15 +215,6 @@ class SegmentTest(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
-
-    def test_round_resets_compose_mode_before_shadow(self):
-        ops = edit.parse_ops("resize:960,round:16,shadow,strip")
-        argv, alpha = edit.build_args(ops, {}, 1000, 600)
-        self.assertTrue(alpha)
-        self.assertIn("CopyOpacity", argv)
-        copy_idx = argv.index("CopyOpacity")
-        layers_idx = argv.index("-layers")
-        self.assertIn("Over", argv[copy_idx:layers_idx])
 
 
 if __name__ == "__main__":

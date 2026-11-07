@@ -10,11 +10,11 @@ A complete reference and practitioner handbook for the **Creative Stack**: eight
 2. [Environment & Harness Wiring](#2-environment--harness-wiring)
 3. [Brand Token System (`brand/tokens.json`)](#3-brand-token-system-brandtokensjson)
 4. [Skill-by-Skill Reference & Workflows](#4-skill-by-skill-reference--workflows)
-   - [`/shot` — Screenshots, Callouts, Browser Frames & Visual Diffs](#41-shot--screenshots-callouts-browser-frames--visual-diffs)
+   - [`/shot` — Screenshots, Callouts & Browser Frames](#41-shot--screenshots-callouts--browser-frames)
    - [`/vidkit` — Video Jump-Cuts, Captions, Motion Graphics & NLE Timelines](#42-vidkit--video-jump-cuts-captions-motion-graphics--nle-timelines)
    - [`/deck` — Slide Decks in Marp, Reveal.js & Typst](#43-deck--slide-decks-in-marp-revealjs--typst)
    - [`/vector` — Diagrams (D2, Mermaid, Graphviz, PlantUML), SVG & Tracing](#44-vector--diagrams-d2-mermaid-graphviz-plantuml-svg--tracing)
-   - [`/raster` — Batch Edits, Responsive Ladders, Cutouts, SAM 2 & Contact Sheets](#45-raster--batch-edits-responsive-ladders-cutouts-sam-2--contact-sheets)
+   - [`/raster` — Batch Edits, Responsive Ladders, Cutouts & SAM 2 Segmentation](#45-raster--batch-edits-responsive-ladders-cutouts--sam-2-segmentation)
    - [`/render3d` — Headless Blender Cycles/EEVEE, 3D Logos & Turntables](#46-render3d--headless-blender-cycleseevee-3d-logos--turntables)
    - [`/sound` — Speech Cleanup, Procedural Music Beds, Sidechain Ducking & Reaper](#47-sound--speech-cleanup-procedural-music-beds-sidechain-ducking--reaper)
    - [`/artgen` — Generative Images, Video, TTS Narration, Music & Grounded Research](#48-artgen--generative-images-video-tts-narration-music--grounded-research)
@@ -46,7 +46,7 @@ flowchart LR
     end
 
     subgraph Intermediates["Reviewable Intermediates"]
-        I1[".yaml / .anot8.json"]
+        I1["steps.yaml"]
         I2[".d2 / .mmd / .dot"]
         I3["cut.json / .srt / .ass"]
         I4[".motion.json / .plan.json"]
@@ -56,7 +56,7 @@ flowchart LR
     subgraph Outputs["Published Deliverables"]
         O1["PNG / WebP / AVIF / SVG"]
         O2["H.264 MP4 / ProRes 4444 / GIF"]
-        O3["WAV / MP3 / M4A (-16 LUFS)"]
+        O3["WAV / MP3 / M4A (-14 LUFS)"]
         O4["PDF / HTML / PPTX"]
     end
 
@@ -67,12 +67,12 @@ flowchart LR
 
 ### Core Invariants
 
-1. **Reviewable Intermediates Before Pixels**: Every non-trivial operation writes a plain-text specification (`cut.json`, `steps.yaml`, `.anot8.json`, `.srt`, `.ass`, `.motion.json`, `.plan.json`, `deck.md`, `edit.xml`, `.rpp`) before rendering final media. Fixing a typo, adjusting a timestamp, or dropping a bad take is a text edit rather than a full re-capture.
-2. **One Brand Token File**: Colours, typography, callout dimensions, shadow softness, caption rules, and audio loudness targets (`-16 LUFS` integrated, `-1.5 dBTP` true peak) live in `brand/tokens.json`.
+1. **Reviewable Intermediates Before Pixels**: Every non-trivial operation writes a plain-text specification (`cut.json`, `steps.yaml`, `.srt`, `.ass`, `.motion.json`, `.plan.json`, `deck.md`, `edit.xml`, `.rpp`) before rendering final media. Fixing a typo, adjusting a timestamp, or dropping a bad take is a text edit rather than a full re-capture.
+2. **One Brand Token File**: Colours, typography, callout dimensions, shadow softness, caption rules, and audio loudness targets (`-14 LUFS` integrated, `-1.0 dBTP` true peak) live in `brand/tokens.json`.
 3. **Three Portability Chokepoints**:
    - `packages/manifest.json` defines every package across Homebrew, pacman/AUR, and apt, plus `cargo`/`npm`/`uv`/`font-release` fallbacks and the binaries each package `provides`.
    - `scripts/hostenv.py` resolves OS family, display server (`quartz`/`wayland`/`x11`/`headless`), OS secret store (`keychain`/`libsecret`/`file`), and headless app binaries.
-   - `config/harnesses.json` maps every supported AI assistant (Antigravity, Antigravity CLI, Jetski, Claude Code, Gemini CLI, Codex, Cursor) to its skill directories, registry files, and MCP configuration dialect.
+   - `config/harnesses.json` maps every supported AI assistant (Claude Code, OpenAI Codex, Gemini CLI, Antigravity IDE, Antigravity CLI, Universal Agent Hub, Cursor) to its skill directories, registry files, and MCP configuration dialect.
 4. **Zero Repo Secrets**: API keys live in the OS keychain (`security` on macOS, `secret-tool` on Linux, or `0600` `~/.config/creative-stack/secrets.env`) and are exported into `os.environ` at runtime.
 
 ---
@@ -96,16 +96,17 @@ What `creative-stack.env` sets up:
 
 ### Supported Harnesses
 
-`python3 scripts/sync_skills.py` links all eight skills (plus optional external skill repos such as `anot8`) into every installed agent harness:
+`python3 scripts/sync_skills.py` links all eight skills into every installed agent harness defined in `config/harnesses.json`:
 
-| Harness | Skill Symlink Locations | Skill Registry | MCP Config Path |
+| Harness | Skill Symlink Locations | Skill Registry | Project MCP Config Path |
 | :--- | :--- | :--- | :--- |
-| **Antigravity App & Jetski** | `~/.gemini/config/skills/`, `~/.gemini/antigravity/skills/` | `~/.gemini/config/skills.json` | `~/.gemini/config/mcp_config.json`, `~/.gemini/antigravity/mcp_config.json` |
-| **Antigravity CLI (`agy`)** | `~/.gemini/antigravity-cli/skills/`, `~/.gemini/config/skills/` | `~/.gemini/config/skills.json` | `~/.gemini/config/mcp_config.json` |
-| **Claude Code (`claude`)** | `~/.claude/skills/` | — | `.mcp.json` (project), `~/.claude.json` (user) |
-| **Gemini CLI (`gemini`)** | `~/.gemini/skills/`, `~/.agents/skills/` | — | `.gemini/settings.json` (project), `~/.gemini/settings.json` (user) |
-| **Codex (`codex`)** | `~/.agents/skills/`, `~/.codex/skills/` | `~/.agents/skills.json` | `~/.codex/config.toml` |
-| **Cursor** | Reads `~/.claude/skills/` | — | `.cursor/mcp.json` |
+| **Claude Code (`claude`)** | `~/.claude/skills` | — | `.mcp.json` (project, pending approval) |
+| **OpenAI Codex (`codex`)** | `~/.agents/skills` | — | User-scope only (`~/.codex/config.toml` not written; prints `codex mcp add`) |
+| **Gemini CLI (`gemini`)** | `~/.gemini/skills` | — | `.gemini/settings.json` (project) |
+| **Antigravity IDE** | `~/.gemini/config/skills` | `~/.gemini/config/skills.json` | User-scope only (`~/.gemini/config/mcp_config.json` not written; prints hint) |
+| **Antigravity CLI (`agy`)** | `~/.gemini/antigravity-cli/skills` | — | — |
+| **Universal Agent Hub** | `~/.agents/skills` | `~/.agents/skills.json` | — |
+| **Cursor** | Reads `~/.claude/skills` | — | `.cursor/mcp.json` (project) |
 
 All eight skills set `disable-model-invocation: true` in their `SKILL.md` frontmatter so they act as explicit slash commands (`/shot`, `/vidkit`, `/deck`, `/vector`, `/raster`, `/render3d`, `/sound`, `/artgen`) rather than firing unprompted during unrelated coding work.
 
@@ -117,18 +118,17 @@ Every script loads `brand/tokens.json` via `scripts/brand.py`. Override the acti
 
 | Token Group | Key Properties | Consumed By |
 | :--- | :--- | :--- |
-| `color.light` / `color.dark` | `bg`, `surface`, `surfaceAlt`, `text`, `textMuted`, `accent`, `accent2`, `ok`, `warn`, `danger`, `border` | All visual skills (`--mode light\|dark`) |
+| `color.light` / `color.dark` | `bg`, `surface`, `surfaceAlt`, `text`, `textMuted`, `accent`, `accentHover`, `border`, `codeBg` | All visual skills (`--mode light\|dark`) |
 | `color.brand` | `blue` (`#4285F4`), `red` (`#EA4335`), `yellow` (`#FBBC04`), `green` (`#34A853`) | `/vector`, `/deck`, `/vidkit`, `/render3d` |
-| `gradient` | `hero`, `dark`, `warm` (`angle` + `stops`) | `/shot frame.py`, `/deck`, `/render3d` |
-| `font` | `sans` (`Google Sans`/`Inter`), `display`, `mono` (`Google Sans Code`/`JetBrains Mono`), `cjk` | `/shot`, `/vidkit`, `/deck`, `/vector` |
-| `callout` | `strokeWidth` (`3`), `cornerRadius` (`10`), `badgeRadius` (`16`), `color` (`#EA4335`), `dimOpacity` (`0.45`) | `/shot annotate.py` |
-| `caption` | `maxCharsPerLine` (`42`), `maxLines` (`2`), `readingSpeedWps` (`3.2`), `boxOpacity` (`0.82`) | `/vidkit captions.py` |
-| `audio` | `targetLufs` (`-16.0`), `truePeakDb` (`-1.5`), `duckDb` (`-14.0`), `voiceHighpassHz` (`80`) | `/sound clean.py`, `/sound mix.py`, `/vidkit publish.py` |
+| `gradient` | `hero`, `warm`, `subtle`, `dusk` | `/shot frame.py`, `/raster cutout.py`, `/render3d`, `/vidkit motion.py` |
+| `font` | `display`, `body`, `mono` | `/shot`, `/vidkit`, `/deck`, `/vector` |
+| `screenshot` | `deviceScaleFactor` (`2`), `viewport` (`[1440, 900]`), `padding` (`64`), `cornerRadius` (`12`), `calloutColor` (`#EA4335`), `calloutStroke` (`3`) | `/shot capture.py`, `/shot annotate.py`, `/shot frame.py` |
+| `video` | `resolution` (`[1920, 1080]`), `fps` (`30`), `safeMargin` (`64`), `captionFont`, `captionSize` (`42`), `loudnessTarget` (`-14`), `truePeak` (`-1.0`) | `/vidkit captions.py`, `/vidkit motion.py`, `/vidkit publish.py`, `/sound clean.py`, `/sound mix.py` |
 
 Inspect resolved tokens or export Marp CSS at any time:
 
 ```bash
-python3 scripts/brand.py --print
+python3 scripts/brand.py
 python3 scripts/brand.py --css > out/theme.css
 ```
 
@@ -136,21 +136,21 @@ python3 scripts/brand.py --css > out/theme.css
 
 ## 4. Skill-by-Skill Reference & Workflows
 
-> **Python Environment Note**: For commands that use Playwright (`capture.py`, `frame.py`, `motion.py`), Pillow (`diff.py`, `sheet.py`), `rembg` (`cutout.py`), `torch`/`transformers` (`segment.py`), or `google-genai` (`artgen`), invoke via `.venv/bin/python` (or activate `.venv`).
+> **Python Environment Note**: For commands that use Playwright (`capture.py`, `frame.py`, `motion.py`), Pillow (`image.py`, `cutout.py`, `segment.py`), `rembg` (`cutout.py`), `torch`/`transformers` (`segment.py`), or `google-genai` (`artgen`), invoke via `.venv/bin/python` (or activate `.venv`).
 
 ---
 
-### 4.1 `/shot` — Screenshots, Callouts, Browser Frames & Visual Diffs
+### 4.1 `/shot` — Screenshots, Callouts & Browser Frames
 
-Produces crisp 2x Retina screenshots, numbered callout overlays, privacy redactions, gradient browser frames, visual regression diffs, and high-quality GIFs.
+Produces crisp 2x Retina screenshots, numbered callout overlays, privacy redactions, and gradient browser frames.
 
 #### Scripts & Capabilities
 
 | Script | Purpose | Key Flags |
 | :--- | :--- | :--- |
-| `skills/shot/scripts/capture.py` | Headless Chromium capture at `@2x` DPI with CSS transition freezing, selector waiting, dark mode, or multi-step YAML walkthroughs | `-u <url>`, `-o <png>`, `--selector <css>`, `--wait-for <css>`, `--hide <css>`, `--dark`, `--steps <yaml>` |
-| `skills/shot/scripts/annotate.py` | Parametric callouts (`badge`, `box`, `arrow`, `label`, `highlight`, `spotlight`, `blur` redaction) via Anot8 or ImageMagick | `-i <png>`, `-o <png>`, `--spec <yaml/json>`, `--badge "1:x,y"`, `--box "x,y,w,h:label"`, `--spotlight "x,y,w,h"`, `--blur "x,y,w,h"`, `--markdown-out <md>` |
-| `skills/shot/scripts/frame.py` | Wraps a screenshot in a macOS/browser window chrome over a brand gradient card with shadow | `-i <png>`, `-o <png>`, `--chrome browser\|macos\|terminal`, `--url <str>`, `--backdrop hero\|dark\|warm`, `--caption <str>` |
+| `skills/shot/scripts/capture.py` | Headless Chromium capture at `@2x` DPI with CSS transition freezing, cookie-banner hiding, and selector waiting | `--url <url>`, `-o <png>`, `--selector <css>`, `--wait-for <css>`, `--dark`, `--keep-banners` |
+| `skills/shot/scripts/annotate.py` | Declarative callouts (`redact`, `box`, `arrow`, `text`, `spotlight`) from a YAML/JSON spec via ImageMagick | `-i <png>`, `-o <png>`, `-s/--spec <yaml/json>`, `--pixels`, `--mode light\|dark`, `--brand <profile>` |
+| `skills/shot/scripts/frame.py` | Wraps a screenshot in a window or browser chrome over a brand gradient card with shadow | `-i <png>`, `-o <png>`, `--chrome window\|browser\|none`, `--url <str>`, `--backdrop subtle\|hero\|warm\|dusk`, `--caption <str>` |
 
 #### Concrete Workflow
 
@@ -177,14 +177,14 @@ Automates talking-head and screencast post-production while keeping every editor
 
 | Script | Purpose | Key Flags |
 | :--- | :--- | :--- |
-| `skills/vidkit/scripts/analyze.py` | Sends a lightweight proxy clip to Gemini to propose chapters, highlights, fumbles/cuts, and B-roll prompts (`analysis.json`) | `-i <mp4>`, `-o <analysis.json>`, `--transcript <json>` |
-| `skills/vidkit/scripts/autocut.py` | Detects silences (`silencedetect`), merges optional `analysis.json`, writes an editable `cut.json` decision list, and renders a jump-cut MP4 | `-i <mp4>`, `-o <cut.json>`, `--render <mp4>`, `--from-spec <cut.json>`, `--analysis <json>`, `--threshold -35`, `--min-silence 0.45` |
-| `skills/vidkit/scripts/zoom.py` | Detects frame-to-frame motion centroids and rides a smooth push-in zoom onto active terminal/UI areas (`zoom.yaml` intermediate) | `-i <mp4>`, `--auto`, `--spec-out <zoom.yaml>`, `--spec <zoom.yaml>`, `-o <mp4>`, `--zoom 1.6` |
-| `skills/vidkit/scripts/transcribe.py` | Local speech-to-text via `whisper-cli`, emitting `.srt` and word-timed `.json` | `-i <media>`, `-o <prefix>`, `--model base.en` |
+| `skills/vidkit/scripts/analyze.py` | Sends a lightweight proxy clip to Gemini to propose chapters, highlights, fumbles/cuts, and B-roll prompts (`analysis.json`) | `-i <mp4>`, `-o <analysis.json>`, `--transcript <json/srt>`, `--notes <str>` |
+| `skills/vidkit/scripts/autocut.py` | Detects silences (`silencedetect`), merges optional `analysis.json`, writes an editable `cut.json` decision list, and renders a jump-cut MP4 | `-i <mp4>`, `-o <cut.json>`, `--render <mp4>`, `--srt <srt>`, `--srt-out <srt>`, `--analysis <json>`, `--threshold -35`, `--min-silence 0.5` |
+| `skills/vidkit/scripts/zoom.py` | Detects frame-to-frame motion centroids and rides a smooth push-in zoom onto active terminal/UI areas (`zoom.yaml` intermediate) | `-i <mp4>`, `--auto`, `--spec-out <zoom.yaml>`, `--spec <zoom.yaml>`, `-o <mp4>`, `--zoom 1.5` |
+| `skills/vidkit/scripts/transcribe.py` | Local speech-to-text via `whisper-cli`, emitting `.srt`, `.vtt`, `.txt`, and word-timed `.json` | `-i <media>`, `-o <prefix>`, `--model small.en`, `--vocab <terms>`, `--vad` |
 | `skills/vidkit/scripts/captions.py` | Converts `.srt` into brand-styled `.ass` subtitles (`outline`, `box`, `pill`, `karaoke`, `highlight`) and burns them in or muxes a soft track | `-i <mp4>`, `-s <srt>`, `-o <mp4>`, `--style outline\|box\|pill\|karaoke\|highlight`, `--words <json>`, `--soft`, `--ass-only` |
 | `skills/vidkit/scripts/motion.py` | Frame-accurate HTML/CSS motion graphics (`title`, `lower-third`, `end-card`) via Web Animations API seek + ffmpeg | `-t title\|lower-third\|end-card`, `-o <mp4/mov/webm>`, `--param k=v`, `--alpha`, `--overlay-on <mp4>`, `--at <sec>` |
-| `skills/vidkit/scripts/timeline.py` | Exports an OpenTimelineIO FCP7 XML (`edit.xml`) or EDL for DaVinci Resolve, Premiere, or Final Cut | `-s <cut.json>`, `-o <edit.xml>`, `--srt <srt>`, `--music <wav>`, `--chapters <txt>` |
-| `skills/vidkit/scripts/publish.py` | Two-pass EBU R128 loudness normalisation, aspect-ratio reframing (`16:9`, `9:16`, `1:1`), and web-ready H.264/HEVC/AV1 encoding | `-i <mp4>`, `-o <dir/mp4>`, `--aspect 16:9\|9:16\|1:1` |
+| `skills/vidkit/scripts/timeline.py` | Exports an OpenTimelineIO FCP7 XML (`edit.xml`), EDL, or OTIO timeline for DaVinci Resolve, Premiere, or Final Cut | `-s <cut.json>`, `-o <edit.xml>`, `--chapters <txt>`, `--markers gaps\|none`, `--gap-min 2.0` |
+| `skills/vidkit/scripts/publish.py` | Two-pass EBU R128 loudness normalisation, multi-height H.264/VP9 encode ladder (`1080p`, `720p`, `480p`), chapter metadata, and poster frame | `-i <mp4>`, `-o <dir>`, `--heights 1080 720 480`, `--chapters <txt>`, `--webm`, `--thumb-at <sec>` |
 
 #### Concrete Workflow
 
@@ -218,9 +218,9 @@ Turns structured Markdown outlines into brand-themed PDFs, self-contained HTML d
 
 | Script | Purpose | Key Flags |
 | :--- | :--- | :--- |
-| `skills/deck/scripts/outline.py` | Converts a heading/bullet Markdown outline (`#` section dividers, `##` slides, `Notes:` speaker notes) into a Marp deck | `-i <outline.md>`, `-o <deck.md>`, `--paginate`, `--footer <text>`, `--mode light\|dark` |
-| `skills/deck/scripts/build.py` | Compiles `deck.md` into PDF, self-contained HTML, editable PPTX, or per-slide PNGs with brand CSS generated from `brand/tokens.json` | `-i <deck.md>`, `-o <pdf/html/pptx/png>`, `--mode light\|dark`, `--notes` |
-| `skills/deck/scripts/theme.py` | Generates standalone Marp/CSS theme stylesheets from `brand/tokens.json` | `-o <theme.css>`, `--mode light\|dark` |
+| `skills/deck/scripts/outline.py` | Converts a heading/bullet Markdown outline (`#` title, bare `##` section dividers, `##` with bullets slides) into a structured Marp deck | `-i <outline.md>`, `-o <deck.md>`, `--footer <text>`, `--dark`, `--notes`, `--profile <brand>` |
+| `skills/deck/scripts/build.py` | Compiles `deck.md` into PDF, self-contained HTML, editable PPTX (`--editable`), or per-slide PNGs with brand CSS from `brand/tokens.json` | `-i <deck.md>`, `-o <pdf/html/pptx/png>`, `--editable`, `--notes`, `--profile <brand>` |
+| `skills/deck/scripts/theme.py` | Generates standalone Marp/Reveal CSS theme stylesheets from `brand/tokens.json` | `--profile <brand>`, `--stdout` |
 
 #### Concrete Workflow
 
@@ -244,7 +244,7 @@ Renders text-based architecture and sequence diagrams with brand colours and typ
 
 | Script | Purpose | Key Flags |
 | :--- | :--- | :--- |
-| `skills/vector/scripts/diagram.py` | Unified diagram compiler auto-detecting `.d2`, `.mmd`, `.dot`, and `.puml`, injecting `brand/tokens.json` palette & fonts | `-i <file>`, `-o <svg/png/pdf>`, `--theme light\|dark`, `--layout elk\|dagre`, `--sketch`, `--optimise` |
+| `skills/vector/scripts/diagram.py` | Unified diagram compiler auto-detecting `.d2`, `.mmd`, `.dot`, and `.puml`, injecting `brand/tokens.json` palette & fonts | `-i <file>`, `-o <svg/png/pdf>`, `--theme light\|dark`, `--direction right\|left\|down\|up`, `--scale 2`, `--optimise` |
 | `skills/vector/scripts/svg.py` | Four essential SVG operations: `optimise` (SVGO preserving `viewBox`), `export` (`resvg`/Inkscape to PNG/PDF), `text-to-path` (Inkscape), `recolor` (snap hex codes to brand palette) | `-i <svg/dir>`, `-o <out>`, `--op optimise\|export\|text-to-path\|recolor`, `--width <px>`, `--to-brand` |
 | `skills/vector/scripts/trace.py` | Converts raster logos/icons into smooth SVG paths via Potrace + ImageMagick colour quantisation | `-i <png/jpg>`, `-o <svg>`, `--mode bw\|color`, `--colors 4`, `--fill brand.blue` |
 | `skills/vector/scripts/sprite.py` | Folds a directory of SVG icons into a single namespaced `<symbol>` sprite with optional `--currentcolor` and contact sheet | `-i <dir>`, `-o <icons.svg>`, `--prefix ui-`, `--currentcolor`, `--contact-sheet <png>` |
@@ -262,9 +262,9 @@ Renders text-based architecture and sequence diagrams with brand colours and typ
 
 ---
 
-### 4.5 `/raster` — Batch Edits, Responsive Ladders, Cutouts, SAM 2 & Contact Sheets
+### 4.5 `/raster` — Batch Edits, Responsive Ladders, Cutouts & SAM 2 Segmentation
 
-Single-pass ImageMagick/libvips pipelines, responsive `<img srcset>` ladders, neural background removal (`rembg`), open-vocabulary/box-prompted SAM 2 segmentation (`segment.py`), and visual contact sheets.
+Single-pass ImageMagick/libvips pipelines, responsive `<img srcset>` ladders, neural background removal (`rembg`), and open-vocabulary/box-prompted SAM 2 segmentation (`segment.py`).
 
 #### Scripts & Capabilities
 
@@ -325,7 +325,7 @@ Drives headless Blender 5.x (`~/.local/bin/blender -b`) with three-point studio 
 
 ### 4.7 `/sound` — Speech Cleanup, Procedural Music Beds, Sidechain Ducking & Reaper
 
-Broadcast-grade audio pipeline targeting `-16 LUFS` integrated loudness and `-1.5 dBTP` true peak, plus procedural royalty-free music generation via FluidSynth.
+Broadcast-grade audio pipeline targeting `-14 LUFS` integrated loudness and `-1.0 dBTP` true peak, plus procedural royalty-free music generation via FluidSynth.
 
 #### Scripts & Capabilities
 
@@ -343,7 +343,7 @@ Broadcast-grade audio pipeline targeting `-16 LUFS` integrated loudness and `-1.
 .venv/bin/python skills/sound/scripts/bed.py -o out/sting.wav --style corporate --sting
 .venv/bin/python skills/sound/scripts/bed.py -o out/bed.wav --style ambient --duration 15
 
-# 2. Clean raw speech from a video recording to -16 LUFS
+# 2. Clean raw speech from a video recording to -14 LUFS
 .venv/bin/python skills/sound/scripts/clean.py -i out/cut.mp4 -o out/voice-clean.wav
 
 # 3. Mix voice, ducked music bed, and intro sting into a mastered track
@@ -379,7 +379,7 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
   -o out/narration.wav --plan-only
 
 .venv/bin/python skills/artgen/scripts/voice.py \
-  --from-plan out/narration.wav.plan.json -o out/narration.wav
+  --from-plan out/narration.plan.json -o out/narration.wav
 ```
 
 ---
@@ -401,8 +401,8 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 3. **Cut Silence, Add Motion Title Card & Burn Captions (`/vidkit`)**:
    ```bash
    .venv/bin/python skills/vidkit/scripts/autocut.py -i raw-screen.mp4 -o out/cut.json --render out/cut.mp4
-   .venv/bin/python skills/vidkit/scripts/transcribe.py -i out/cut.mp4 -o out/cut
-   .venv/bin/python skills/vidkit/scripts/captions.py -i out/cut.mp4 -s out/cut.srt -o out/captioned.mp4 --style pill --words out/cut.json
+   .venv/bin/python skills/vidkit/scripts/transcribe.py -i out/cut.mp4 -o out/talk
+   .venv/bin/python skills/vidkit/scripts/captions.py -i out/cut.mp4 -s out/talk.srt -o out/captioned.mp4 --style highlight --words out/talk.json
    .venv/bin/python skills/vidkit/scripts/motion.py -t lower-third --overlay-on out/captioned.mp4 --at 2.0 -o out/final.mp4 --param name="Product Demo" --param role="Release 2.0"
    ```
 
@@ -410,9 +410,9 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 
 1. **Capture & Annotate UI (`/shot`)**:
    ```bash
-   .venv/bin/python skills/shot/scripts/capture.py -u https://example.com -o out/raw.png
-   .venv/bin/python skills/shot/scripts/annotate.py -i out/raw.png -o out/annotated.png --spec steps.yaml --markdown-out out/steps.md
-   .venv/bin/python skills/shot/scripts/frame.py -i out/annotated.png -o out/hero.png --gradient hero
+   .venv/bin/python skills/shot/scripts/capture.py --url https://example.com -o out/raw.png
+   .venv/bin/python skills/shot/scripts/annotate.py -i out/raw.png -o out/annotated.png --spec steps.yaml
+   .venv/bin/python skills/shot/scripts/frame.py -i out/annotated.png -o out/hero.png --backdrop hero
    ```
 2. **Render Architecture Diagram (`/vector`)**:
    ```bash
@@ -427,15 +427,15 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 
 ## 6. MCP Servers & Interactive GUI Bridges
 
-Creative Stack configures three MCP servers across your AI assistants:
+Creative Stack configures three opt-in MCP servers (all pinned to reviewed commit SHAs and registered disabled by default) across project-scoped AI assistant configs:
 
 | MCP Server | Command | Default State | Purpose |
 | :--- | :--- | :--- | :--- |
-| **`anot8`** | `npx -y @ksprashu/anot8@1.1.0 mcp` | **Enabled** | Stateless parametric screenshot annotation, callout badges, redaction, spotlighting, and Markdown step generation |
-| **`blender`** | `uvx mcp-for-blender==2.0.0` | **Opt-in (Disabled)** | Interactive two-way socket bridge to a live Blender GUI session (`Edit -> Preferences -> Add-ons -> Blender MCP -> Connect`) |
+| **`blender`** | `uvx --from git+https://github.com/ahujasid/blender-mcp@<sha> blender-mcp` | **Opt-in (Disabled)** | Interactive two-way socket bridge to a live Blender GUI session (`Edit -> Preferences -> Add-ons -> Blender MCP -> Connect`) |
 | **`gimp`** | `uv run --directory ~/.local/share/creative-stack/mcp/gimp gimp_mcp_server.py` | **Opt-in (Disabled)** | Interactive bridge to a live GIMP 3.x GUI session (`Filters -> Development -> Start MCP Server`) |
+| **`resolve`** | `.venv/bin/python ~/.local/share/creative-stack/mcp/resolve/src/resolve_mcp_server.py` | **Opt-in (Disabled)** | Interactive bridge to a live DaVinci Resolve Studio session |
 
-> **Why `blender` and `gimp` are opt-in**: Headless batch rendering (`/render3d` and `/raster gimp.py`) invokes `~/.local/bin/blender -b` and `~/.local/bin/gimp-console` directly as subprocesses and **does not need the MCP servers running**. Enable the `blender` or `gimp` MCP server only when you have the desktop app open in front of you and want the agent to manipulate a live scene interactively.
+> **Why all three MCP servers are opt-in**: Headless batch rendering (`/render3d` and `gimp-console`) invokes `~/.local/bin/blender -b` and `~/.local/bin/gimp-console` directly as subprocesses and **does not need the MCP servers running**. Enable an MCP server only when you have the desktop app open in front of you and want the agent to manipulate a live scene interactively.
 
 ---
 

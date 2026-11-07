@@ -42,6 +42,7 @@ __pycache__/
 # binary that cannot be reviewed in a diff, so it is built, not committed.
 templates/blender/studio.blend
 !fixtures/**
+!docs/report/assets/**
 
 # --- os ---------------------------------------------------------------------
 .DS_Store

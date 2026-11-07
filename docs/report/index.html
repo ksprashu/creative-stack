@@ -970,17 +970,18 @@
             <a href="assets/steps.yaml" download>Download YAML</a>
           </div>
           <pre class="spec-pre">annotations:
+  - type: redact
+    at: [0.26, 0.47, 0.50, 0.08]
+    style: blur
   - type: box
-    rect: [200, 50, 600, 90]
-  - type: number
-    at: [200, 50]
-    n: 1
-  - type: blur
-    rect: [260, 280, 480, 40]
+    at: [0.20, 0.08, 0.60, 0.16]
+    label: "1"
   - type: arrow
-    from: [300, 420]
-    to: [480, 330]
-    label: "Token redacted"</pre>
+    from: [0.30, 0.70]
+    to:   [0.48, 0.55]
+  - type: text
+    at: [0.12, 0.72]
+    text: "Token redacted"</pre>
         </div>
         <div class="spec-box">
           <div class="spec-box-header">
@@ -1002,12 +1003,12 @@
     </section>
 
     <!-- ======================================================================
-         BENCH 02: /raster — Batch Pipeline, Bug Fix & Responsive WebP Ladder
+         BENCH 02: /raster — Batch Pipeline & Responsive WebP Ladder
          ====================================================================== -->
     <section id="bench-raster" class="bench-section" aria-labelledby="title-raster">
       <div class="section-header">
         <div class="section-title-group">
-          <h2 id="title-raster"><span class="skill-tag">/raster</span> Single-Pass ImageMagick Pipeline, Bug Fix &amp; Responsive Ladder</h2>
+          <h2 id="title-raster"><span class="skill-tag">/raster</span> Single-Pass ImageMagick Pipeline &amp; Responsive WebP Ladder</h2>
           <p class="section-desc">
             Executes a 4-stage pipeline (<code>resize:960,round:16,shadow,strip</code>) in one ImageMagick process
             and builds a multi-width WebP + oxipng PNG responsive <code>srcset</code> ladder via libvips.
@@ -1027,9 +1028,9 @@
           <span class="stage-note">Sharp 90° corners, no alpha channel, 32 KB</span>
         </div>
         <div class="pipeline-stage">
-          <span class="stage-role">2. BUG CAUGHT &amp; FIXED IN edit.py</span>
-          <span class="stage-artifact">_round() compose state leak</span>
-          <span class="stage-note">Added <code>-alpha set</code> &amp; restored <code>-compose Over</code> before <code>shadow</code></span>
+          <span class="stage-role">2. REVIEWABLE MANIFEST</span>
+          <span class="stage-artifact">ladder-manifest.json</span>
+          <span class="stage-note">Derivative widths, formats, byte sizes, and ready-to-paste <code>srcset</code></span>
         </div>
         <div class="pipeline-stage">
           <span class="stage-role">3. TRANSFORMED OUTPUTS</span>
@@ -1070,40 +1071,39 @@
       <div class="spec-grid">
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Generated srcset Manifest: ladder/manifest.json</span>
+            <span>Generated srcset Manifest: ladder-manifest.json</span>
             <a href="assets/ladder-manifest.json" download>Download JSON</a>
           </div>
           <pre class="spec-pre">{
   "demo-annotated.png": {
-    "source": [1000, 600],
-    "files": [
-      {"file": "demo-annotated-480.webp", "width": 480, "format": "webp", "bytes": 3914},
-      {"file": "demo-annotated-480.png",  "width": 480, "format": "png",  "bytes": 15389},
-      {"file": "demo-annotated-960.webp", "width": 960, "format": "webp", "bytes": 10128},
-      {"file": "demo-annotated-960.png",  "width": 960, "format": "png",  "bytes": 37371}
+    "source": {
+      "width": 1000,
+      "height": 600
+    },
+    "outputs": [
+      {"file": "demo-annotated-480.webp", "width": 480, "format": "webp", "bytes": 3928},
+      {"file": "demo-annotated-480.png",  "width": 480, "format": "png",  "bytes": 15330},
+      {"file": "demo-annotated-960.webp", "width": 960, "format": "webp", "bytes": 10108},
+      {"file": "demo-annotated-960.png",  "width": 960, "format": "png",  "bytes": 37388}
     ],
-    "html": "&lt;img src=\"demo-annotated-960.webp\" srcset=\"demo-annotated-480.webp 480w, demo-annotated-960.webp 960w\" sizes=\"(max-width: 960px) 100vw, 960px\" alt=\"\"&gt;"
+    "srcset": "demo-annotated-480.webp 480w, demo-annotated-960.webp 960w"
   }
 }</pre>
         </div>
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Bug Fix Applied in skills/raster/scripts/edit.py</span>
-            <span class="status-pill ok">test_pure.py: PASS</span>
+            <span>Exact CLI Reproduction</span>
+            <span>skills/raster/scripts/</span>
           </div>
-          <pre class="spec-pre"># Root cause: _round() ended with `-compose CopyOpacity -composite`.
-# When `shadow` ran `-layers merge` next, ImageMagick 7 merged layers
-# using CopyOpacity instead of Over, zeroing out RGB channels.
+          <pre class="spec-pre"># 1. Single-invocation ImageMagick corner mask + elevation shadow
+.venv/bin/python skills/raster/scripts/edit.py \
+  -i out/demo/annotated.png -o out/demo/card.png \
+  --ops "resize:960,round:16,shadow,strip"
 
-def _round(radius, width, height):
-    r = int(radius)
-    return ["-alpha", "set", "(", "+clone", "-alpha", "extract", "-draw",
-            f"fill black polygon 0,0 0,{r} {r},0 "
-            f"fill white circle {r},{r} {r},0", "(", "+clone", "-flip", ")",
-            "-compose", "Multiply", "-composite",
-            "(", "+clone", "-flop", ")", "-compose", "Multiply", "-composite",
-            ")", "-alpha", "off", "-compose", "CopyOpacity", "-composite",
-            "-compose", "Over"]</pre>
+# 2. Multi-width WebP + oxipng PNG responsive ladder
+.venv/bin/python skills/raster/scripts/ladder.py \
+  -i out/demo/annotated.png -o out/demo/ladder/ \
+  --widths 480,960 --formats webp,png</pre>
         </div>
       </div>
     </section>
@@ -1544,22 +1544,26 @@ file "bed.wav" offset 0.0
       <div class="spec-grid">
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Intermediate Cut List: out/demo/cut.json</span>
+            <span>Intermediate Cut List: cut.json</span>
             <a href="assets/cut.json" download>Download JSON</a>
           </div>
           <pre class="spec-pre">{
+  "version": 1,
   "source": "fixtures/rec.mp4",
-  "duration": 14.279,
+  "duration": 14.279292,
   "fps": 30.0,
   "width": 1280,
   "height": 720,
   "segments": [
-    {"start": 0.0,    "end": 2.12,   "keep": true,  "label": "segment 1"},
-    {"start": 2.12,   "end": 4.88,   "keep": false, "label": "silence (2.76s)"},
-    {"start": 4.88,   "end": 7.62,   "keep": true,  "label": "segment 2"},
-    {"start": 7.62,   "end": 11.88,  "keep": false, "label": "silence (4.26s)"},
-    {"start": 11.88,  "end": 14.279, "keep": true,  "label": "segment 3"}
-  ]
+    {"start": 0.0,     "end": 2.1983},
+    {"start": 4.4777,  "end": 7.2785},
+    {"start": 10.0377, "end": 12.8785}
+  ],
+  "tool": "autocut",
+  "threshold_db": -35.0,
+  "padding": 0.15,
+  "kept": 7.84,
+  "removed": 6.439
 }</pre>
         </div>
         <div class="spec-box">
@@ -1568,12 +1572,14 @@ file "bed.wav" offset 0.0
             <a href="assets/title-card.motion.json" download>Download JSON</a>
           </div>
           <pre class="spec-pre">{
+  "version": 1,
   "template": "title",
   "duration": 2.0,
   "fps": 30,
   "width": 1920,
   "height": 1080,
-  "mode": "light",
+  "mode": "dark",
+  "alpha": false,
   "params": {
     "kicker": "Creative Stack",
     "title": "Ship faster with 8 skills",
@@ -1729,33 +1735,39 @@ file "bed.wav" offset 0.0
       <div class="spec-grid">
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Original Input: fixtures/outline.md</span>
+            <span>Original Input: outline.md</span>
             <a href="assets/outline.md" download>Download MD</a>
           </div>
-          <pre class="spec-pre"># Creative Stack Demo
-Subtitle: Automated content production from plain text
+          <pre class="spec-pre"># Deploying to Cloud Run
+&gt; Ship a container in 90 seconds
 
-# 1. The Problem
-## Why GUI workflows bottleneck agents
-- Agents can read and write text, not click timelines
-- Re-recording for one typo wastes hours
-Notes: Keep this slide under 30 seconds.</pre>
+## Why it matters
+
+## Scales to zero
+- No idle cost when nobody is calling it
+- No cluster to patch
+- No YAML to write
+
+## One command
+- Point it at a directory
+- Cloud Build does the container</pre>
         </div>
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Intermediate Marp Deck: out/demo/deck.md</span>
+            <span>Intermediate Marp Deck: deck.md</span>
             <a href="assets/deck.md" download>Download Marp MD</a>
           </div>
           <pre class="spec-pre">---
 marp: true
-theme: google
+theme: creative-google
 paginate: true
-footer: "creative-stack demo"
+footer: 'creative-stack demo'
 ---
 &lt;!-- _class: lead --&gt;
-# Creative Stack Demo
-Automated content production from plain text
----</pre>
+
+# Deploying to Cloud Run
+
+Ship a container in 90 seconds</pre>
         </div>
       </div>
     </section>
@@ -1783,57 +1795,57 @@ Automated content production from plain text
       <div style="padding: 1.5rem 2rem;">
         <div tabindex="0" role="region" aria-labelledby="harness-table-caption" class="table-wrapper">
           <table style="--label-2: 'Skills Directory'; --label-3: 'MCP Configuration'; --label-4: 'Status &amp; Plugins';">
-            <caption id="harness-table-caption">Global AI Assistant &amp; Desktop Harness Configuration Matrix</caption>
+            <caption id="harness-table-caption">AI Assistant &amp; Harness Configuration Matrix (config/harnesses.json)</caption>
             <thead>
               <tr>
                 <th scope="col">AI Assistant / Harness</th>
-                <th scope="col">Global Skills Symlink Path</th>
-                <th scope="col">Global &amp; Project MCP Config</th>
-                <th scope="col">Verified State &amp; Active Plugins</th>
+                <th scope="col">Skills Symlink Path</th>
+                <th scope="col">Project MCP Config</th>
+                <th scope="col">Verified State</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <th scope="row">Antigravity App (Antigravity.app)</th>
-                <td><code>~/.gemini/config/skills/</code> &amp; <code>~/.gemini/antigravity/skills/</code></td>
-                <td><code>~/.gemini/config/mcp_config.json</code> &amp; <code>~/.gemini/antigravity/mcp_config.json</code></td>
-                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP + 11 Plugins</span></td>
-              </tr>
-              <tr>
-                <th scope="row">Jetski (Jetski.app / Antigravity IDE)</th>
-                <td><code>~/.gemini/config/skills/</code> (registered in <code>skills.json</code>)</td>
-                <td><code>~/.gemini/config/mcp_config.json</code></td>
-                <td><span class="status-pill ok">✓ Synced to ~/.gemini/jetski/plugin_data</span></td>
-              </tr>
-              <tr>
-                <th scope="row">Antigravity CLI (agy)</th>
-                <td><code>~/.gemini/antigravity-cli/skills/</code> &amp; <code>~/.gemini/config/skills/</code></td>
-                <td><code>~/.gemini/config/mcp_config.json</code></td>
-                <td><span class="status-pill ok">✓ 9 Skills + anot8/blender/gimp MCP</span></td>
-              </tr>
-              <tr>
                 <th scope="row">Claude Code (claude)</th>
-                <td><code>~/.claude/skills/</code></td>
-                <td><code>~/.claude.json</code> (global) &amp; <code>.mcp.json</code> (project)</td>
-                <td><span class="status-pill ok">✓ 9 Skills + document-skills &amp; example-skills</span></td>
-              </tr>
-              <tr>
-                <th scope="row">Gemini CLI (gemini)</th>
-                <td><code>~/.gemini/skills/</code> &amp; <code>~/.agents/skills/</code></td>
-                <td><code>~/code/github/gemini-cli-config/settings.json</code> &amp; <code>.gemini/settings.json</code></td>
-                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP Servers</span></td>
+                <td><code>~/.claude/skills</code></td>
+                <td><code>.mcp.json</code> (project, pending approval)</td>
+                <td><span class="status-pill ok">✓ 8 Skills + 3 Opt-in MCP Servers</span></td>
               </tr>
               <tr>
                 <th scope="row">OpenAI Codex (codex)</th>
-                <td><code>~/.agents/skills/</code> &amp; <code>~/.codex/skills/</code></td>
-                <td><code>~/.codex/config.toml</code></td>
-                <td><span class="status-pill ok">✓ 9 Skills + TOML MCP entries</span></td>
+                <td><code>~/.agents/skills</code></td>
+                <td>User-scope only (<code>~/.codex/config.toml</code> not written; prints <code>codex mcp add</code>)</td>
+                <td><span class="status-pill ok">✓ 8 Skills Linked</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Gemini CLI (gemini)</th>
+                <td><code>~/.gemini/skills</code></td>
+                <td><code>.gemini/settings.json</code> (project)</td>
+                <td><span class="status-pill ok">✓ 8 Skills + 3 Opt-in MCP Servers</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity IDE</th>
+                <td><code>~/.gemini/config/skills</code> (registered in <code>~/.gemini/config/skills.json</code>)</td>
+                <td>User-scope only (<code>~/.gemini/config/mcp_config.json</code> not written; prints hint)</td>
+                <td><span class="status-pill ok">✓ 8 Skills Linked &amp; Registered</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Antigravity CLI (agy)</th>
+                <td><code>~/.gemini/antigravity-cli/skills</code></td>
+                <td>—</td>
+                <td><span class="status-pill ok">✓ 8 Skills Linked</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Universal Agent Hub</th>
+                <td><code>~/.agents/skills</code> (registered in <code>~/.agents/skills.json</code>)</td>
+                <td>—</td>
+                <td><span class="status-pill ok">✓ 8 Skills Linked &amp; Registered</span></td>
               </tr>
               <tr>
                 <th scope="row">Cursor</th>
-                <td>Reads <code>~/.claude/skills/</code></td>
-                <td><code>.cursor/mcp.json</code></td>
-                <td><span class="status-pill ok">✓ 9 Skills + 3 MCP Servers</span></td>
+                <td>Reads <code>~/.claude/skills</code></td>
+                <td><code>.cursor/mcp.json</code> (project)</td>
+                <td><span class="status-pill ok">✓ 8 Skills + 3 Opt-in MCP Servers</span></td>
               </tr>
             </tbody>
           </table>
@@ -1848,15 +1860,12 @@ Automated content production from plain text
           </div>
           <pre class="spec-pre">{
   "engine": "gemini",
-  "model": "gemini-3.8-flash-tts",
-  "mode": "narration",
+  "style": "",
+  "gap": 0.6,
+  "model": null,
   "voice": "Charon",
-  "style": null,
-  "lang": "en-US",
-  "rate": 24000,
   "chunks": [
     {
-      "index": 0,
       "text": "Welcome to Creative Stack. Every skill writes a reviewable intermediate file before rendering pixels or audio."
     }
   ]
