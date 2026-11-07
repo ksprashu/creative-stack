@@ -37,6 +37,7 @@ import analyze  # noqa: E402
 import autocut  # noqa: E402
 import captions  # noqa: E402
 import segment  # noqa: E402
+import sync_skills  # noqa: E402
 import voice  # noqa: E402
 
 
@@ -215,6 +216,50 @@ class SegmentTest(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
+
+
+class SyncSkillsTest(unittest.TestCase):
+    def test_git_returns_124_on_timeout(self):
+        exc = subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=5)
+        with mock.patch.object(sync_skills.subprocess, "run", side_effect=exc):
+            rc, out = sync_skills.git("fetch", timeout=5)
+        self.assertEqual(rc, 124)
+        self.assertIn("timed out after 5s", out)
+
+    def test_prune_normalizes_relative_symlinks_and_keeps_known_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "creative-stack"
+            vendor = root / "vendor"
+            foreign = root / "other-repo"
+            target = root / "harness" / "skills"
+            repo.mkdir()
+            vendor.mkdir()
+            foreign.mkdir()
+            target.mkdir(parents=True)
+
+            # Broken relative symlink that resolves inside repo -> should be pruned
+            stale_ours = target / "old-skill"
+            stale_ours.symlink_to("../../creative-stack/skills/old-skill")
+
+            # Broken relative symlink that traverses through repo into foreign -> keep
+            stale_foreign = target / "foreign-skill"
+            stale_foreign.symlink_to("../../creative-stack/../other-repo/foreign-skill")
+
+            # Pending external skill (in EXTERNAL, omitted from available `skills`) -> keep
+            pending_ext = target / "anot8"
+            pending_ext.symlink_to(vendor / "anot8" / "skills" / "anot8")
+
+            with mock.patch.object(sync_skills, "REPO_ROOT", repo), \
+                    mock.patch.object(sync_skills, "VENDOR", vendor), \
+                    mock.patch("builtins.print"):
+                changed, problems = sync_skills.sync_dir(
+                    target, ["Test"], {}, fix=True, prune=True, uninstall=False)
+
+            self.assertEqual((changed, problems), (1, 0))
+            self.assertFalse(stale_ours.is_symlink())
+            self.assertTrue(stale_foreign.is_symlink())
+            self.assertTrue(pending_ext.is_symlink())
 
 
 if __name__ == "__main__":

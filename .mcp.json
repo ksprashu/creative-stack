@@ -14,6 +14,14 @@
         "${HOME}/.local/share/creative-stack/mcp/gimp",
         "gimp_mcp_server.py"
       ]
+    },
+    "anot8": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ksprashu/anot8@1.1.0",
+        "mcp"
+      ]
     }
   }
 }

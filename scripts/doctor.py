@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hostenv  # noqa: E402
+from sync_skills import skill_sources  # noqa: E402
 
 REPO_ROOT = hostenv.REPO_ROOT
 
@@ -55,7 +56,7 @@ TOOLS = {
     "document": ["pandoc", "gs", "pdftoppm", "qpdf", "mutool", "typst", "tectonic"],
     "slides": ["marp", "presenterm"],
     "video": ["ffmpeg", "ffprobe", "HandBrakeCLI", "mkvmerge", "yt-dlp", "auto-editor"],
-    "capture": ["vhs", "asciinema", "agg", "silicon", "termshot", "freeze"],
+    "capture": ["vhs", "asciinema", "agg", "silicon", "termshot", "freeze", "anot8"],
     "audio": ["sox", "rubberband", "lame", "flac", "fluidsynth", "lilypond", "csound"],
     "speech": ["whisper-cli", "tesseract"],
     "animation": ["manim", "latex"],
@@ -84,7 +85,6 @@ BRIDGES = {name: hostenv.find_app(name)
 RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
 RESOLVE_MODULES = RESOLVE_API / "Modules"
 
-SKILLS = ["shot", "vidkit", "deck", "vector", "raster", "render3d", "sound", "artgen"]
 
 GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
@@ -511,7 +511,7 @@ def check_mcp(rep):
                     f"{mcp['path']} missing — run install_mcp.py")
             continue
         text = path.read_text()
-        names = [n for n in ("blender", "gimp", "resolve") if f'"{n}"' in text]
+        names = [n for n in ("blender", "gimp", "resolve", "anot8") if f'"{n}"' in text]
         seen = True
         rep.add("mcp", label, "ok" if names else "warn",
                 f"{mcp['path']}: {', '.join(names) or 'no servers declared'}")
@@ -538,10 +538,10 @@ def check_skills(rep):
     if not targets:
         return rep.add("skills", "harnesses", "warn", "no harness detected")
 
-    for skill in SKILLS:
-        src = REPO_ROOT / "skills" / skill
+    for skill, src in skill_sources().items():
         if not (src / "SKILL.md").exists():
-            rep.add("skills", skill, "warn", "SKILL.md not authored yet")
+            rep.add("skills", skill, "warn",
+                    "not available yet — run sync_skills.py --fix")
             continue
         linked, wrong = [], []
         for target in targets:
