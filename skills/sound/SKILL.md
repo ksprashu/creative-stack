@@ -100,10 +100,19 @@ you whether it hit the target.
    ```bash
    python3 scripts/session.py -o show.rpp -t voice.wav -t "bed.wav@3:-16"
    python3 scripts/session.py -o show.rpp -t voice.wav -t bed.wav --duck --render final.wav
+   python3 scripts/session.py -o out/song/song.rpp --karaoke-backing out/song/backing.wav \
+     --produce-vocal "out/song/recordings/01-Lead Vocals (Mic).wav" \
+     --video out/song/video.mp4 --markers out/song/lyrics.md --tempo 98 --apply-live
    ```
 
-   Each stem lands on its own track at the right offset and gain. `--render` drives Reaper's
-   headless renderer; `--open` just opens the session.
+   Each stem lands on its own track at the right offset and gain. `--produce-vocal` analyzes the
+   singer's recorded take (LUFS, true peak, LRA, 2-second RMS phrasing windows), builds a Pre-FX
+   `<VOLENV>` automation envelope, wires a 5-track studio session with 100% native Reaper FX
+   (`ReaGate`, `ReaEQ`, dual `ReaComp`, `JS: Liteon/deesser`, tempo-synced `ReaDelay` Echo bus,
+   `ReaVerbate` Reverb bus, Backing Track vocal-pocket `ReaEQ`, and Master bus `ReaEQ` + `ReaComp`
+   + `JS: loser/masterLimiter` + `JS: analysis/loudness_meter`), and `--apply-live` executes the
+   companion `.produce.lua` ReaScript via `REAPER -nonewinst` and writes `fx-report.txt`.
+   `--render` drives Reaper's headless renderer; `--open` just opens the session.
 
 7. **Separate stems, shift key/tempo, and render synchronized karaoke (`karaoke.py`):**
 
@@ -184,6 +193,33 @@ python3 scripts/karaoke.py --from-plan out/karaoke-practice.karaoke.json \
   --reaper -o out/karaoke-master.mp4
 ```
 
+### Example C — YouTube Karaoke Teleprompter Session, Native Reaper FX Production & LinkedIn Export
+
+Pull a YouTube karaoke track, extract on-screen lyric cues via OCR, open a record-armed Reaper
+session with a `Cmd+Shift+V` lyric teleprompter, then produce & master the recorded vocal take
+natively inside Reaper and export a loudness-normalised MP4:
+
+```bash
+# 1. pull the YouTube karaoke track (48kHz 24-bit WAV + 1080p video), extract OCR lyric markers,
+#    and open a record-armed Reaper session with input monitoring ON and muted video teleprompter
+python3 scripts/karaoke.py --youtube "https://www.youtube.com/watch?v=0d3LzwjjTog" \
+  --ocr-lyrics --reaper --arm-mic --monitoring on --bpm 98 --open \
+  -o out/over-each-other/over-each-other.rpp
+
+# 2. after recording the vocal take in Reaper, analyze the take and apply native Reaper FX,
+#    Pre-FX volume automation, stereo Echo/Reverb buses, and Master bus processing live
+python3 scripts/session.py -o out/over-each-other/over-each-other.rpp \
+  --karaoke-backing out/over-each-other/over-each-other.instrumental.wav \
+  --produce-vocal "out/over-each-other/recordings/01-Lead Vocals (Mic).wav" \
+  --video out/over-each-other/over-each-other-video.mp4 \
+  --markers out/over-each-other/over-each-other.lyrics.md \
+  --tempo 98 --apply-live
+
+# 3. convert a screen-recorded .mov finale to a LinkedIn-ready .mp4 (-c:v copy + 2-pass -14 LUFS)
+python3 ../vidkit/scripts/publish.py -i ~/Movies/over-each-other-finale.mov \
+  -o ~/Movies/over-each-other-finale.mp4 --copy-video
+```
+
 ---
 
 ## 🚫 Hard Constraints
@@ -233,3 +269,18 @@ python3 scripts/karaoke.py --from-plan out/karaoke-practice.karaoke.json \
     Amoeba Loopback lets users name virtual devices anything (e.g. `"Clean Mic"`); always query
     `hostenv.audio_devices()`, which inspects `coreaudio_device_transport == "coreaudio_device_type_virtual"`
     and the device manufacturer.
+*   **NEVER** pass raw dB values to `reaper.TrackFX_SetEQParam(..., paramtype=1, val, false)`.
+    When `isnorm=false`, `ReaEQ` expects **linear amplitude ratios (`10 ^ (dB / 20)`)** for band
+    gain: passing `0.0` sets `-inf dB` and passing `-4.0` sets `+12.0 dB` (inverted phase). Always
+    convert via `session.db_to_linear_gain(db)`.
+*   **NEVER** guess `ReaDelay`'s normalized musical length (`param 4`). `ReaDelay` scales parameter 4
+    linearly across `[0, 256]` eighth notes, so a 1/4-note echo (`2.0` eighth notes) is
+    `2 / 256 = 0.0078125` (`session.reaper_delay_musical_norm(2.0)`), whereas `0.03125` is a full
+    8-eighth-note bar.
+*   **NEVER** leave a karaoke reference video unmuted in a Reaper recording session. The high-res
+    24-bit WAV on Track 2 is the audio source; Track 3 (`Lyrics Video`) must have `MUTESOLO 1 0 0`
+    so `Cmd+Shift+V` shows the synced lyric wipe without comb-filtering against the audio track.
+*   **NEVER** overwrite a recorded Reaper `.rpp` session without backing up the raw recording
+    project to `Backups/<stem>-raw-recording.rpp` first. `session.py --produce-vocal` writes the
+    backup, emits `<stem>.produce.json` and `<stem>.produce.lua`, reloads via
+    `reaper.Main_openProject("noprompt:...")`, and verifies every live parameter in `<stem>.fx-report.txt`.

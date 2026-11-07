@@ -124,7 +124,71 @@ python3 skills/sound/scripts/karaoke.py \
 
 ---
 
-## 4. Mastering Targets by Delivery Platform
+## 4. Reaper Native Karaoke Teleprompter, Vocal Production & Live ReaScript Mastering
+
+When recording and producing inside **REAPER** (rather than rendering an offline FFmpeg mix),
+`karaoke.py` and `session.py` automate the entire studio workflow using 100% native Reaper FX:
+
+### Stage 1: Pull YouTube Karaoke Track, OCR Lyrics & Open Record-Armed Session
+
+```bash
+python3 skills/sound/scripts/karaoke.py \
+  --youtube "https://www.youtube.com/watch?v=0d3LzwjjTog" \
+  --ocr-lyrics --reaper --arm-mic --monitoring on --bpm 98 --open \
+  -o out/over-each-other/over-each-other.rpp
+```
+
+What this builds:
+* `over-each-other.instrumental.wav` — 48 kHz / 24-bit uncompressed PCM backing track
+* `over-each-other-video.mp4` — 1080p karaoke lyric video
+* `over-each-other.lyrics.md` — OCR-extracted timestamped lyric cues (`ffmpeg` + `tesseract`)
+* `over-each-other.rpp` — 3-track Reaper project:
+  1. **Track 1 (`Lead Vocals (Mic)`)**: Record-armed (`REC 1 0 1 ...`), input monitoring ON, `RECORD_PATH "recordings" ""`
+  2. **Track 2 (`Karaoke Backing Track`)**: Auto gain-staged (`-14 LUFS - measured_LUFS`, clamped to `[-8, 0] dB`) so hot `-8.8 LUFS` YouTube tracks leave headroom for vocals
+  3. **Track 3 (`Lyrics Video (Press Cmd+Shift+V)`)**: Muted (`MUTESOLO 1 0 0`) video item so pressing `Cmd+Shift+V` (`Ctrl+Shift+V` on Linux/Windows) opens Reaper's floating Video Window as a sample-accurate lyric teleprompter without double audio
+  4. **Timeline Markers (`MARKER`)**: Section and lyric prompts along the top ruler
+
+### Stage 2: Analyze Recorded Vocal Take & Produce Natively in Reaper (`--produce-vocal`)
+
+After the singer records their vocal take into `recordings/` and saves the project:
+
+```bash
+python3 skills/sound/scripts/session.py \
+  -o out/over-each-other/over-each-other.rpp \
+  --karaoke-backing out/over-each-other/over-each-other.instrumental.wav \
+  --produce-vocal "out/over-each-other/recordings/01-Lead Vocals (Mic).wav" \
+  --video out/over-each-other/over-each-other-video.mp4 \
+  --markers out/over-each-other/over-each-other.lyrics.md \
+  --tempo 98 --apply-live
+```
+
+What `--produce-vocal` does:
+1. **Backs up raw recording session** to `Backups/<stem>-raw-recording.rpp`.
+2. **Measures vocal telemetry**: EBU R128 loudness (`I`, `TP`, `LRA`), active singing start/end bounds (for non-destructive `POSITION`/`SOFFS`/`LENGTH` trim + fade-in/out), and 2-second RMS phrasing windows to compute a **Pre-FX Volume Automation Envelope (`<VOLENV>`)** that lifts quiet low-register verses (`+3` to `+4.8 dB`) and tames loud chorus/outro peaks (`-2.8 dB`) before hitting the compressors.
+3. **Writes `<stem>.produce.json`** (reviewable intermediate plan) and the **5-track produced `.rpp`**:
+   * **Track 1 (`Lead Vocals (Mic)`)**: Pre-FX `<VOLENV>` + `VST: ReaGate` + `VST: ReaEQ` (`95 Hz` HPF, `+1.2 dB @ 180 Hz` warmth, `-4.0 dB @ 330 Hz` mud cut, `+4.2 dB @ 3.4 kHz` presence, `+3.2 dB @ 10.5 kHz` air) + `VST: ReaComp` Peak Catcher (`4:1`) + `VST: ReaComp` Smooth Leveler (`2.5:1`) + `JS: Liteon/deesser` (`6.2 kHz`).
+   * **Track 2 (`Vocal Echo (Stereo Delay Bus)`)**: Post-fader `AUXRECV` send (`-12.5 dB`) + `VST: ReaDelay` (`100%` wet, tempo-synced `2.00` eighth notes = 1/4-note echo via `param 4 = 2/256 = 0.0078125`, `-9 dB` feedback, `220 Hz - 3.8 kHz` bandpass) + `VST: ReaEQ` warm echo roll-off.
+   * **Track 3 (`Vocal Reverb (Lush Plate Bus)`)**: Post-fader `AUXRECV` send (`-10.5 dB`) + `VST: ReaVerbate` (`100%` wet, room size `79`, `35 ms` pre-delay) + `VST: ReaEQ` Abbey Road curve (`220 Hz` HPF, `-2.5 dB @ 350 Hz` mud cut, `-6.0 dB @ 7.5 kHz` high shelf).
+   * **Track 4 (`Backing Track (Instrumental)`)**: Gain-staged instrumental + `VST: ReaEQ` carving a subtle `-2.2 dB` vocal pocket at `3.2 kHz` and `-1.0 dB` at `200 Hz`.
+   * **Track 5 (`Lyrics Video`)**: Muted video track kept in sync.
+   * **Master Bus (`<MASTERFXLIST>`)**: Mastering `VST: ReaEQ` + `VST: ReaComp` Bus Glue + `JS: loser/masterLimiter` (`-1.0 dB` ceiling) + `JS: analysis/loudness_meter` (`-14 LUFS`).
+4. **Generates `<stem>.produce.lua` and runs `REAPER -nonewinst` (`--apply-live`)**:
+   * Calls `reaper.Main_openProject("noprompt:<path>.rpp")` so a running Reaper instance reloads cleanly without blocking on a modal dialog.
+   * Converts all EQ dB gains to linear amplitude (`10 ^ (dB / 20)`) before calling `reaper.TrackFX_SetEQParam(tr, fx, bandtype, bandidx, 1, val, false)`.
+   * Writes `<stem>.fx-report.txt` reading back every formatted parameter value from Reaper's engine to prove the live state.
+
+### Stage 3: Lossless Screen-Recording Remux & Loudness Normalisation for LinkedIn / YouTube
+
+```bash
+python3 skills/vidkit/scripts/publish.py \
+  -i ~/Movies/over-each-other-finale.mov \
+  -o ~/Movies/over-each-other-finale.mp4 \
+  --copy-video
+```
+
+---
+
+## 5. Mastering Targets by Delivery Platform
 
 When running `clean.py`, `mix.py`, or `karaoke.py`, pass `--target` and `--true-peak` (or `--lra`)
 to match the destination platform:

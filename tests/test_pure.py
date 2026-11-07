@@ -40,6 +40,7 @@ import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
 import segment  # noqa: E402
+import session  # noqa: E402
 import voice  # noqa: E402
 
 
@@ -283,6 +284,61 @@ class AudioRoutingAndKaraokeTest(unittest.TestCase):
         self.assertIn("highpass=f=130,pan=stereo|c0=c0-0.92*c1|c1=c1-0.92*c0[side]", filt)
         self.assertIn("aecho=", karaoke.vocal_reverb_chain(0.25))
         self.assertNotIn("aecho=", karaoke.vocal_reverb_chain(0.0))
+
+    def test_karaoke_ocr_deduplicates_consecutive_lyric_screens(self):
+        cues = [
+            (4, "This is the letter\nthat I didn't write"),
+            (10, "This is the letter\nthat I didn't write!"),
+            (28, "But you won't let me breathe"),
+        ]
+        deduped = karaoke.deduplicate_ocr_cues(cues)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0][0], 4.0)
+        self.assertIn("letter", deduped[0][1])
+        self.assertEqual(deduped[1][0], 28.0)
+
+    def test_session_reaper_gain_delay_and_automation_math(self):
+        self.assertAlmostEqual(session.db_to_linear_gain(0.0), 1.0, places=6)
+        self.assertAlmostEqual(session.db_to_linear_gain(-6.0206), 0.5, places=3)
+        self.assertAlmostEqual(session.reaper_delay_musical_norm(2.0), 0.0078125, places=7)
+        self.assertAlmostEqual(session.reaper_delay_musical_norm(8.0), 0.03125, places=7)
+
+        windows = [(0.0, float("-inf")), (8.0, -25.0), (20.0, -18.0),
+                   (40.0, -18.0), (150.0, -12.0), (170.0, float("-inf"))]
+        start, length = session.detect_active_bounds(windows, 175.0)
+        self.assertAlmostEqual(start, 7.2, places=1)
+        self.assertAlmostEqual(length, 144.3, places=1)
+
+        pts = session.compute_vocal_automation_points(windows)
+        self.assertEqual(pts[0], (0.0, 1.0))
+        # Quiet verse at 8s (-25 dBFS vs -18 dBFS median) gets boosted > 1.0
+        self.assertGreater(dict(pts)[8.0], 1.3)
+        # Loud outro at 150s (-12 dBFS vs -18 dBFS median) gets trimmed < 1.0
+        self.assertLess(dict(pts)[150.0], 0.9)
+
+    def test_session_parse_markers_and_produce_lua(self):
+        md = (
+            "# Lyrics\n"
+            "| Timestamp | Section | Lyric |\n"
+            "| :--- | :--- | :--- |\n"
+            '| `0:04` | **Verse 1** | *"This is the letter"* |\n'
+            "1:20 Chorus 2\n"
+        )
+        markers = session.parse_markers_text(md)
+        self.assertEqual(markers, [(4.0, "Verse 1: This is the letter"), (80.0, "Chorus 2")])
+
+        plan = {
+            "eq": {"hpf_hz": 95.0, "low_shelf_hz": 180.0, "low_shelf_db": 1.2,
+                   "mud_hz": 330.0, "mud_db": -4.0, "mud_bw": 0.75,
+                   "presence_hz": 3400.0, "presence_db": 4.2, "presence_bw": 1.1,
+                   "air_hz": 10500.0, "air_db": 3.2},
+            "echo": {"send_db": -12.5, "eighth_notes": 2.0, "feedback_norm": 0.3548},
+            "reverb": {"send_db": -10.5, "room_size": 0.72, "predelay_norm": 0.070},
+        }
+        lua = session.build_produce_lua("/tmp/song.rpp", "/tmp/fx-report.txt", plan, tempo=98.0)
+        self.assertIn("noprompt:", lua)
+        self.assertIn("10.0 ^ (db / 20.0)", lua)
+        self.assertIn("0.00781250", lua)
 
 
 if __name__ == "__main__":

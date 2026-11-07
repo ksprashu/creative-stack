@@ -242,6 +242,12 @@ Do not re-discover these.
 *   **A redaction inside the object's outline leaves the outline.** Pixelating the polygon of
     a word left it readable from the glyph silhouettes. `segment.py` paints hiding ops over
     each match's box and floors pixelate blocks at half the region's short side.
+*   **Reaper's `TrackFX_SetEQParam` with `isnorm=false` wants linear amplitude, not dB.** Passing
+    `0.0` for `paramtype=1` (Gain) sets `-inf dB`, and passing `-4.0` sets `+12.0 dB` with
+    inverted polarity. Always convert via `10 ^ (dB / 20)` (`session.db_to_linear_gain()`). And
+    `ReaDelay` maps parameter 4 (`Length (musical)`) linearly across `[0, 256]` eighth notes, so a
+    1/4-note echo (`2.0` eighth notes) is `2 / 256 = 0.0078125`. Drive a running Reaper instance
+    via `REAPER -nonewinst script.lua` and `reaper.Main_openProject("noprompt:/abs/path.rpp")`.
 
 ## Harness gotchas already paid for
 

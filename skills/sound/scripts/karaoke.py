@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Build a karaoke backing track, word-timed ASS lyrics, vocal mix, and 1080p video.
+"""Build a karaoke backing track, word-timed ASS/OCR lyrics, Reaper session, and 1080p video.
+
+    # pull a YouTube karaoke track, extract OCR lyrics, and build a record-armed Reaper session
+    python3 karaoke.py --youtube "https://www.youtube.com/watch?v=0d3LzwjjTog" \\
+        --ocr-lyrics --reaper --arm-mic --tempo 98 -o out/over-each-other/over-each-other.rpp
 
     # split vocals/instrumental, transcribe word timings, and render a 1080p karaoke MP4
     python3 karaoke.py -i song.mp3 -o out/karaoke.mp4
@@ -36,7 +40,9 @@ Separation engines (`--engine`):
 """
 
 import argparse
+import difflib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -46,6 +52,106 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import soundlib as S  # noqa: E402
 import hostenv  # noqa: E402
+
+
+def download_youtube_karaoke(url, out_dir, stem="karaoke"):
+    """Download a YouTube karaoke video (1080p MP4) and extract a 48kHz 24-bit WAV backing track."""
+    yt_dlp = hostenv.which("yt-dlp")
+    if not yt_dlp:
+        S.die("yt-dlp not found. " + hostenv.package_hint("yt-dlp"))
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    video_mp4 = out_dir / f"{stem}-video.mp4"
+    backing_wav = out_dir / f"{stem}-backing.wav"
+
+    if not video_mp4.exists():
+        print(f"⬇️  downloading karaoke video from YouTube → {video_mp4.name} …")
+        S.run([
+            yt_dlp, "--no-playlist",
+            "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "-o", str(video_mp4), str(url),
+        ])
+    if not backing_wav.exists():
+        print(f"🎵 extracting 48 kHz / 24-bit WAV backing track → {backing_wav.name} …")
+        S.ffmpeg([
+            "-i", str(video_mp4), "-vn",
+            "-ar", str(S.RATE), "-ac", "2", "-c:a", "pcm_s24le",
+            str(backing_wav),
+        ])
+    return video_mp4, backing_wav
+
+
+def clean_ocr_lyric_text(raw_text):
+    """Strip OCR noise from a CD+G / karaoke video frame and return a single-line summary."""
+    lines = []
+    for raw in (raw_text or "").splitlines():
+        cleaned = re.sub(r"[^A-Za-z0-9'\",.?!\-\s]", " ", raw)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if len(cleaned) < 4:
+            continue
+        low = cleaned.lower()
+        if any(skip in low for skip in ("karaoke", "subscribe", "instrumental", "www.", "http")):
+            continue
+        lines.append(cleaned)
+    return " / ".join(lines[:3])
+
+
+def deduplicate_ocr_cues(raw_cues, similarity_threshold=0.65):
+    """Collapse consecutive OCR frames displaying the same lyric screen into `(sec, text)`."""
+    deduped = []
+    prev_text = ""
+    for sec, raw in raw_cues:
+        cleaned = clean_ocr_lyric_text(raw)
+        if not cleaned:
+            continue
+        if prev_text:
+            ratio = difflib.SequenceMatcher(None, prev_text.lower(), cleaned.lower()).ratio()
+            if ratio >= similarity_threshold:
+                continue
+        deduped.append((float(sec), cleaned))
+        prev_text = cleaned
+    return deduped
+
+
+def extract_video_lyrics_ocr(video_path, lyrics_md_path, interval_sec=10):
+    """Sample frames from a karaoke video via ffmpeg + tesseract OCR and write `lyrics.md`."""
+    tesseract = hostenv.which("tesseract")
+    if not tesseract:
+        S.die("tesseract not found. " + hostenv.package_hint("tesseract"))
+    info = S.probe(video_path)
+    duration = int(info["duration"])
+    raw_cues = []
+    print(f"🔎 extracting on-screen lyrics via OCR ({video_path.name}) …")
+    with tempfile.TemporaryDirectory(prefix="cs-karaoke-ocr-") as tmp:
+        for sec in range(4, duration, max(4, int(interval_sec))):
+            frame_png = Path(tmp) / f"frame_{sec:04d}.png"
+            S.ffmpeg([
+                "-ss", str(sec), "-i", str(video_path),
+                "-frames:v", "1", "-update", "1", str(frame_png),
+            ], check=False)
+            if not frame_png.exists():
+                continue
+            proc = subprocess.run(
+                [tesseract, str(frame_png), "stdout", "--psm", "6"],
+                capture_output=True, text=True, check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                raw_cues.append((sec, proc.stdout))
+
+    cues = deduplicate_ocr_cues(raw_cues)
+    md_lines = [
+        f"# Lyrics & Timeline Cues — {Path(video_path).stem}",
+        "",
+        "| Timestamp | Section | Lyric Cue |",
+        "| :--- | :--- | :--- |",
+        '| `0:00` | **Intro** | *"[Instrumental Intro]"* |',
+    ]
+    for idx, (sec, text) in enumerate(cues, 1):
+        m, s = divmod(int(sec), 60)
+        md_lines.append(f'| `{m}:{s:02d}` | **Cue {idx}** | *"{text}"* |')
+    Path(lyrics_md_path).write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+    return cues
 
 
 def center_cut_instrumental_filter(bass_cutoff=130):
@@ -298,22 +404,31 @@ def render_karaoke_video(audio_wav, ass_path, out_mp4, src_media=None, brand=Non
 
 def build_karaoke_plan(args, stem_base, dst):
     """Create the reviewable `<stem>.karaoke.json` plan dictionary."""
-    engine = resolve_engine(args.engine)
+    engine = "none" if args.youtube else resolve_engine(args.engine)
     return {
+        "youtube": args.youtube,
         "input": str(args.input) if args.input else None,
         "output": str(dst),
         "engine": engine,
         "semitones": float(args.semitones),
         "tempo": float(args.tempo),
+        "bpm": float(args.bpm),
         "guide_db": None if args.guide_db == "off" else float(args.guide_db),
         "sing": str(args.sing) if args.sing else None,
         "sing_reverb": float(args.reverb),
         "brand": args.brand,
         "accent": args.accent,
-        "reaper": bool(args.reaper),
+        "reaper": bool(args.reaper or dst.suffix.lower() == ".rpp"),
+        "arm_mic": bool(args.arm_mic),
+        "monitoring": args.monitoring,
+        "ocr_lyrics": bool(args.ocr_lyrics),
+        "apply_live": bool(args.apply_live),
+        "open": bool(args.open),
         "artifacts": {
             "instrumental": str(args.instrumental or stem_base.with_name(f"{stem_base.name}.instrumental.wav")),
             "vocals": str(args.vocals or stem_base.with_name(f"{stem_base.name}.vocals.wav")),
+            "video": str(stem_base.with_name(f"{stem_base.name}.video.mp4")),
+            "lyrics_md": str(stem_base.with_name(f"{stem_base.name}.lyrics.md")),
             "srt": str(args.srt or stem_base.with_name(f"{stem_base.name}.srt")),
             "words": str(args.words or stem_base.with_name(f"{stem_base.name}.json")),
             "ass": str(stem_base.with_name(f"{stem_base.name}.ass")),
@@ -327,8 +442,10 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", "-i", help="input song or video file")
+    ap.add_argument("--youtube", "-y",
+                    help="YouTube karaoke URL to download (1080p MP4 + 48kHz 24-bit WAV)")
     ap.add_argument("--output", "-o", required=True,
-                    help="output .mp4 karaoke video or .wav/.mp3/.flac backing mix")
+                    help="output .mp4 karaoke video, .rpp Reaper session, or .wav/.mp3/.flac mix")
     ap.add_argument("--engine", default="auto",
                     choices=["auto", "demucs", "center-cut", "none"],
                     help="vocal separation engine (default: auto)")
@@ -336,10 +453,14 @@ def main():
     ap.add_argument("--vocals", help="use an existing isolated vocal WAV/MP3")
     ap.add_argument("--srt", help="existing .srt lyric file (skips whisper transcription)")
     ap.add_argument("--words", help="existing whisper -ojf word-timing JSON")
+    ap.add_argument("--ocr-lyrics", action="store_true",
+                    help="extract timestamped lyric cues from on-screen karaoke video via OCR")
     ap.add_argument("--semitones", type=float, default=0.0,
                     help="shift key in semitones via rubberband, e.g. -2 or +1.5")
     ap.add_argument("--tempo", type=float, default=1.0,
                     help="tempo multiplier via rubberband, e.g. 0.95 (default 1.0)")
+    ap.add_argument("--bpm", type=float, default=120.0,
+                    help="project tempo in BPM for Reaper session & delay sync (default 120)")
     ap.add_argument("--guide-db", default="off",
                     help="guide vocal level in dB (e.g. -18), or 'off' for pure instrumental")
     ap.add_argument("--sing", help="recorded singer vocal file to clean, reverb, and mix in")
@@ -347,6 +468,14 @@ def main():
                     help="vocal plate reverb amount 0.0-0.6 for --sing (default 0.22)")
     ap.add_argument("--reaper", action="store_true",
                     help="also emit a multi-track Reaper .rpp session alongside the output")
+    ap.add_argument("--arm-mic", action="store_true",
+                    help="arm Track 1 ('Lead Vocals (Mic)') for recording in the Reaper session")
+    ap.add_argument("--monitoring", default="on", choices=["on", "off"],
+                    help="input monitoring for --arm-mic (default: on)")
+    ap.add_argument("--apply-live", action="store_true",
+                    help="when --sing + --reaper are used, apply native Reaper FX live via ReaScript")
+    ap.add_argument("--open", action="store_true",
+                    help="open the Reaper session when ready")
     ap.add_argument("--brand", help="brand profile")
     ap.add_argument("--accent", help="karaoke sweep highlight colour, #RRGGBB")
     ap.add_argument("--target", type=float, help="target loudness in LUFS (default: brand -14)")
@@ -367,8 +496,8 @@ def main():
             S.die(f"karaoke plan not found: {plan_path}")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
     else:
-        if not args.input and not (args.instrumental and args.vocals):
-            ap.error("provide --input (-i) or --from-plan")
+        if not (args.input or args.youtube or (args.instrumental and args.vocals)):
+            ap.error("provide --input (-i), --youtube (-y), or --from-plan")
         plan = build_karaoke_plan(args, stem_base, dst)
         plan_path = stem_base.with_name(f"{stem_base.name}.karaoke.json")
         plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -379,12 +508,24 @@ def main():
     art = plan["artifacts"]
     inst_wav = Path(art["instrumental"])
     voc_wav = Path(art["vocals"])
+    video_mp4 = Path(art.get("video", stem_base.with_name(f"{stem_base.name}.video.mp4")))
+    lyrics_md = Path(art.get("lyrics_md", stem_base.with_name(f"{stem_base.name}.lyrics.md")))
     srt_path = Path(art["srt"])
     words_path = Path(art["words"])
     ass_path = Path(art["ass"])
     mix_wav = Path(art["audio_mix"])
 
-    if not (inst_wav.exists() and voc_wav.exists()):
+    if plan.get("youtube"):
+        dl_video, dl_backing = download_youtube_karaoke(
+            plan["youtube"], dst.parent, stem=stem_base.name)
+        video_mp4 = dl_video
+        if abs(plan.get("semitones", 0.0)) > 1e-3 or abs(plan.get("tempo", 1.0) - 1.0) > 1e-3:
+            shift_key_and_tempo(dl_backing, inst_wav, plan["semitones"], plan["tempo"])
+        elif dl_backing.resolve() != inst_wav.resolve():
+            shutil.copyfile(dl_backing, inst_wav)
+        S.report(video_mp4, "karaoke lyric video")
+        S.report(inst_wav, "instrumental backing track")
+    elif not (inst_wav.exists() and voc_wav.exists()):
         src = Path(plan["input"])
         if not src.exists():
             S.die(f"input not found: {src}")
@@ -398,34 +539,57 @@ def main():
         S.report(inst_wav, "instrumental stem")
         S.report(voc_wav, "vocal stem")
 
-    ensure_karaoke_subtitles(
-        voc_wav, srt_path, words_path, ass_path,
-        brand=plan.get("brand"), accent=plan.get("accent"),
-    )
-    S.report(ass_path, "karaoke ASS subtitles")
+    vid_source = video_mp4 if video_mp4.exists() else (Path(plan["input"]) if plan.get("input") else None)
+    if plan.get("ocr_lyrics") and vid_source and vid_source.exists():
+        extract_video_lyrics_ocr(vid_source, lyrics_md)
+        S.report(lyrics_md, "OCR timestamped lyric cues")
 
-    tokens = S.tokens(plan.get("brand"))
-    target_i, target_tp = S.targets(tokens, args.target, args.true_peak)
-    mix_karaoke_audio(
-        inst_wav, voc_wav, plan.get("sing"), mix_wav,
-        plan.get("guide_db"), plan.get("sing_reverb", 0.22),
-        target_i, target_tp,
-    )
-    S.report(mix_wav, "mastered karaoke audio")
-    S.report_loudness(mix_wav, target_i, target_tp)
+    # If the caller asked only for a Reaper session (.rpp) from a YouTube karaoke track,
+    # build the session directly without re-encoding a full video unless requested.
+    if dst.suffix.lower() != ".rpp":
+        if voc_wav.exists():
+            ensure_karaoke_subtitles(
+                voc_wav, srt_path, words_path, ass_path,
+                brand=plan.get("brand"), accent=plan.get("accent"),
+            )
+            S.report(ass_path, "karaoke ASS subtitles")
 
-    if dst.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
-        render_karaoke_video(mix_wav, ass_path, dst,
-                             src_media=plan.get("input"), brand=plan.get("brand"))
-        S.report(dst, "karaoke video")
+        tokens = S.tokens(plan.get("brand"))
+        target_i, target_tp = S.targets(tokens, args.target, args.true_peak)
+        mix_karaoke_audio(
+            inst_wav, voc_wav if voc_wav.exists() else None, plan.get("sing"), mix_wav,
+            plan.get("guide_db"), plan.get("sing_reverb", 0.22),
+            target_i, target_tp,
+        )
+        S.report(mix_wav, "mastered karaoke audio")
+        S.report_loudness(mix_wav, target_i, target_tp)
+
+        if dst.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv") and ass_path.exists():
+            render_karaoke_video(mix_wav, ass_path, dst,
+                                 src_media=vid_source, brand=plan.get("brand"))
+            S.report(dst, "karaoke video")
 
     if plan.get("reaper") or dst.suffix.lower() == ".rpp":
         rpp_out = dst if dst.suffix.lower() == ".rpp" else stem_base.with_suffix(".rpp")
         session_py = Path(__file__).resolve().parent / "session.py"
-        tracks = ["-t", f"{inst_wav}@0:0", "-t", f"{voc_wav}@0:-18"]
+        cmd = [sys.executable, str(session_py), "-o", str(rpp_out),
+               "--karaoke-backing", str(inst_wav),
+               "--tempo", str(plan.get("bpm", 120.0))]
+        if voc_wav.exists() and not plan.get("youtube"):
+            cmd += ["-t", f"{voc_wav}@0:-18"]
+        if vid_source and vid_source.exists():
+            cmd += ["--video", str(vid_source)]
+        if lyrics_md.exists():
+            cmd += ["--markers", str(lyrics_md)]
         if plan.get("sing") and Path(plan["sing"]).exists():
-            tracks += ["-t", f"{plan['sing']}@0:0"]
-        S.run([sys.executable, str(session_py), *tracks, "-o", str(rpp_out)])
+            cmd += ["--produce-vocal", str(plan["sing"])]
+            if plan.get("apply_live"):
+                cmd.append("--apply-live")
+        elif plan.get("arm_mic"):
+            cmd += ["--arm-mic", "--monitoring", plan.get("monitoring", "on")]
+        if plan.get("open"):
+            cmd.append("--open")
+        S.run(cmd)
 
     return 0
 
