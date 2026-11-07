@@ -174,8 +174,9 @@ def build_plan(text, args):
         elif len(speakers) > 2:
             G.die(f"{len(speakers)} speakers ({', '.join(speakers)}) — Gemini "
                   "TTS voices at most two per request. Split the script.")
-        voices = (args.voices.split(",") if args.voices
-                  else [args.voice or DEFAULT_VOICE, SECOND_VOICE])
+        first = args.voice or DEFAULT_VOICE
+        second = DEFAULT_VOICE if first == SECOND_VOICE else SECOND_VOICE
+        voices = args.voices.split(",") if args.voices else [first, second]
         if len(speakers) == 2 and len(voices) < 2:
             G.die("a two-speaker dialogue needs --voices A,B")
         plan["speakers"] = dict(zip(speakers, (v.strip() for v in voices)))
@@ -269,16 +270,21 @@ def to_pcm(data, mime):
     return data, int(match.group(1)) if match else RATE
 
 
+def tts_chain(primary, new_shape):
+    """The fallback chain, `primary` first. The SDK filter runs last, so an
+    asked-for 3.8 model is dropped too, not put back at the head."""
+    chain = G.chain_for(primary, SEQUENCE) if primary else list(SEQUENCE)
+    return chain if new_shape else [m for m in chain if version(m) < 3.8]
+
+
 def synthesise(plan, args):
     """[(pcm, rate)] for every chunk, plus the model/backend that answered."""
     _, types = G.load_genai()
-    sequence = SEQUENCE
-    if not sdk_has_new_shape(types):
-        sequence = [m for m in SEQUENCE if version(m) < 3.8]
+    new_shape = sdk_has_new_shape(types)
+    if not new_shape:
         G.warn("google-genai is too old for the Gemini 3.8 TTS request shape — "
                "skipping 3.8. Upgrade: uv pip install -U google-genai")
-    primary = args.model or plan.get("model")
-    chain = G.chain_for(primary, sequence) if primary else sequence
+    chain = tts_chain(args.model or plan.get("model"), new_shape)
 
     def call_for(chunk):
         def call(client, model):
@@ -296,10 +302,11 @@ def synthesise(plan, args):
 
     takes, used = [], None
     for index, chunk in enumerate(plan["chunks"]):
-        # Once a model answers, keep it at the head: switching voice models
+        # Once a model answers, it is the only model: switching voice models
         # between paragraphs is audible even when the voice name is the same.
+        # Retries and the other backend still apply; a different model does not.
         if used:
-            chain = G.chain_for(used[0], chain)
+            chain = [used[0]]
         take, model, backend = G.attempt(chain, call_for(chunk), args.backend,
                                          quiet=index > 0)
         used = (model, backend)

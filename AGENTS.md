@@ -275,6 +275,7 @@ python3 scripts/hostenv.py                 # does this machine resolve correctly
 python3 scripts/packages.py --plan         # does every package have a route
 python3 scripts/doctor.py --quick          # nothing regressed
 python3 scripts/validate_skills.py         # skills still lint
+python3 -m unittest discover -s tests     # pure-function unit tests (stdlib only)
 python3 scripts/sync_skills.py --list      # which harnesses are detected here
 bash    scripts/verify_linux.sh            # clean Arch + Ubuntu, in containers
 make demo                                  # six artefacts land in out/

@@ -105,20 +105,24 @@ if [ "$FAMILY" != macos ] && [ "$(id -u)" -ne 0 ]; then
   ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
   SUDO_KEEPALIVE=$!
   trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
-elif [ "$FAMILY" = macos ] && [ "$PROFILE" != headless ] && ! sudo -n true 2>/dev/null; then
+elif [ "$FAMILY" = macos ] && [ "$PROFILE" != headless ]; then
   # Homebrew itself never needs root, but .pkg casks (MacTeX) call sudo
   # mid-install — an hour in, on a prompt nobody is watching. Ask now, or
-  # say up front which casks will fail when nobody can answer.
-  if [ -t 0 ] && [ "$ASSUME_YES" -ne 1 ]; then
+  # say up front which casks will fail when nobody can answer. A timestamp
+  # that is already cached still needs the keepalive: it lasts five minutes.
+  if sudo -n true 2>/dev/null; then
+    :
+  elif [ -t 0 ] && [ "$ASSUME_YES" -ne 1 ]; then
     say "Elevating once — .pkg casks (MacTeX) need it mid-install"
-    sudo -v && {
-      ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
-      SUDO_KEEPALIVE=$!
-      trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
-    }
+    sudo -v || warn "sudo declined — .pkg casks (MacTeX) will fail"
   else
     warn "no terminal for a sudo prompt — .pkg casks (MacTeX) will fail;" \
-         "rerun them in Terminal: brew install --cask --yes mactex-no-gui"
+         "rerun them in Terminal: brew install --cask mactex-no-gui"
+  fi
+  if sudo -n true 2>/dev/null; then
+    ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+    SUDO_KEEPALIVE=$!
+    trap 'kill "$SUDO_KEEPALIVE" 2>/dev/null || true' EXIT
   fi
 fi
 

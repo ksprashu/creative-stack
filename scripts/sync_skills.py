@@ -80,10 +80,13 @@ def skill_sources():
     return sources
 
 
-def git(*args):
+def git(*args, timeout=120):
     """(returncode, output). Never raises: a missing or broken git is a warning."""
     try:
-        done = subprocess.run(["git", *args], capture_output=True, text=True)
+        done = subprocess.run(["git", *args], capture_output=True, text=True,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {timeout}s"
     except OSError as exc:
         return 1, str(exc)
     return done.returncode, (done.stdout + done.stderr).strip()
@@ -247,13 +250,11 @@ def sync_dir(target, labels, skills, fix, prune, uninstall):
 
     if prune and not uninstall:
         for entry in sorted(target.iterdir()):
-            if not entry.is_symlink() or entry.name in skills:
+            if not entry.is_symlink() or entry.name in SKILLS or entry.name in EXTERNAL:
                 continue
             # Only our own dead links. One into agent-skill-forge is that
             # repo's to clean up, broken or not — see AGENTS.md.
-            pointed = Path(os.readlink(entry))
-            if not pointed.is_absolute():
-                pointed = target / pointed
+            pointed = Path(os.path.normpath(target / os.readlink(entry)))
             if not any(pointed.is_relative_to(root) for root in (REPO_ROOT, VENDOR)):
                 continue
             try:

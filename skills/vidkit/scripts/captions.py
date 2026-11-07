@@ -152,7 +152,10 @@ def time_words(cue, words):
     if not text:
         return []
     if words:
-        hits = [w for w in words if cue["start"] - 0.15 <= w[0] < cue["end"]]
+        # w[1] > start drops the previous cue's last word when it ends just
+        # inside the 150ms lead-in; clamped, it would be an empty interval.
+        hits = [w for w in words
+                if cue["start"] - 0.15 <= w[0] < cue["end"] and w[1] > cue["start"]]
         if len(hits) == len(text):
             return [(max(w[0], cue["start"]), min(w[1], cue["end"]), word)
                     for w, word in zip(hits, text)]

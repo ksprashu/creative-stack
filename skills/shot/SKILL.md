@@ -50,9 +50,9 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    `highlight` change the pixels and draw no border, so a redaction reads as part of the
    image, not as a callout.
 
-   Not sure where a secret is? `/raster`'s `segment.py --query "the API key" --json hits.json`
+   Not sure where a secret is? `/raster`'s `segment.py -i out/raw.png --query "the API key" --json hits.json`
    finds it by description; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
-   at `x: xmin/10 %`, `y: ymin/10 %` covers it.
+   at `x: xmin/10 %`, `y: ymin/10 %`, `w: (xmax - xmin)/10 %`, `h: (ymax - ymin)/10 %` covers it.
 
    `annotate.py` is the no-Node alternative: brand-token colours, a YAML spec in fractions of
    width/height. `make demo` uses it.
