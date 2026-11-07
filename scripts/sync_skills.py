@@ -30,6 +30,8 @@ config/harnesses.json. Nothing in this file knows the name of a harness.
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,6 +40,19 @@ SKILLS_DIR = REPO_ROOT / "skills"
 HARNESSES = REPO_ROOT / "config/harnesses.json"
 
 SKILLS = ["shot", "vidkit", "deck", "vector", "raster", "render3d", "sound", "artgen"]
+
+# Skills whose canonical copy lives in another repo. Each is sparse-cloned at a
+# reviewed commit, the rule the MCP servers follow: a skill tells an agent what
+# to run, so a floating branch is a floating instruction set. Re-pin
+# deliberately after reading the diff.
+EXTERNAL = {
+    "anot8": {
+        "repo": "ksprashu/anot8",
+        "sha": "6c855caee30c86b19563c5dbef203cbaf300c539",   # pinned 2026-11-05 (1.1.0)
+        "path": "skills/anot8",
+    },
+}
+VENDOR = Path.home() / ".local/share/creative-stack/skills"
 
 GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
@@ -56,6 +71,64 @@ def bad(m):
 
 def expand(raw):
     return Path(raw).expanduser()
+
+
+def skill_sources():
+    """{name: source directory} for every skill we link, ours and vendored."""
+    sources = {s: SKILLS_DIR / s for s in SKILLS}
+    sources.update({n: VENDOR / n / spec["path"] for n, spec in EXTERNAL.items()})
+    return sources
+
+
+def git(*args, timeout=120):
+    """(returncode, output). Never raises: a missing or broken git is a warning."""
+    try:
+        done = subprocess.run(["git", *args], capture_output=True, text=True,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {timeout}s"
+    except OSError as exc:
+        return 1, str(exc)
+    return done.returncode, (done.stdout + done.stderr).strip()
+
+
+def vendor_external(fix):
+    """Sparse-clone each EXTERNAL skill at its pin. Returns (changed, problems)."""
+    if not EXTERNAL:
+        return 0, 0
+    print(f"{DIM}── vendored skills  ({VENDOR}){RESET}")
+    changed = problems = 0
+    for name, spec in EXTERNAL.items():
+        dest, sha = VENDOR / name, spec["sha"]
+        rc, head = git("-C", str(dest), "rev-parse", "HEAD")
+        if rc == 0 and head == sha and (dest / spec["path"] / "SKILL.md").exists():
+            ok(f"{name}  {DIM}{spec['repo']}@{sha[:12]}{RESET}")
+            continue
+        if not fix:
+            warn(f"{name} — {'not vendored' if rc else 'off its pin'} (use --fix)")
+            problems += 1
+            continue
+        if not dest.exists():
+            VENDOR.mkdir(parents=True, exist_ok=True)
+            rc, out = git("clone", "--quiet", "--filter=blob:none", "--no-checkout",
+                          f"https://github.com/{spec['repo']}.git", str(dest))
+            if rc != 0:
+                bad(f"{name} — clone failed: {out[:70]}")
+                problems += 1
+                continue
+        git("-C", str(dest), "sparse-checkout", "set", spec["path"])
+        rc, out = git("-C", str(dest), "checkout", "--quiet", sha)
+        if rc != 0:
+            git("-C", str(dest), "fetch", "--quiet", "origin", sha)
+            rc, out = git("-C", str(dest), "checkout", "--quiet", sha)
+        if rc != 0 or not (dest / spec["path"] / "SKILL.md").exists():
+            bad(f"{name} — could not check out {sha[:12]}: {out[:70]}")
+            problems += 1
+            continue
+        ok(f"{name}  {DIM}{spec['repo']}@{sha[:12]} (vendored){RESET}")
+        changed += 1
+    print()
+    return changed, problems
 
 
 def load_harnesses():
@@ -132,6 +205,7 @@ def plan(harnesses, only, force):
 
 
 def sync_dir(target, labels, skills, fix, prune, uninstall):
+    """Link each of `skills` ({name: source dir}) into `target`."""
     print(f"{DIM}── {target}  ({', '.join(labels)}){RESET}")
     changed = problems = 0
 
@@ -144,8 +218,7 @@ def sync_dir(target, labels, skills, fix, prune, uninstall):
             return 0, 0
         target.mkdir(parents=True, exist_ok=True)
 
-    for skill in skills:
-        src = SKILLS_DIR / skill
+    for skill, src in skills.items():
         link = target / skill
         state = link_state(src, link)
 
@@ -177,7 +250,12 @@ def sync_dir(target, labels, skills, fix, prune, uninstall):
 
     if prune and not uninstall:
         for entry in sorted(target.iterdir()):
-            if not entry.is_symlink() or entry.name in SKILLS:
+            if not entry.is_symlink() or entry.name in SKILLS or entry.name in EXTERNAL:
+                continue
+            # Only our own dead links. One into agent-skill-forge is that
+            # repo's to clean up, broken or not — see AGENTS.md.
+            pointed = Path(os.path.normpath(target / os.readlink(entry)))
+            if not any(pointed.is_relative_to(root) for root in (REPO_ROOT, VENDOR)):
                 continue
             try:
                 entry.resolve(strict=True)
@@ -212,7 +290,10 @@ def sync_registries(harnesses, only, force, fix, uninstall):
         return 0, 0
 
     print(f"{DIM}── skill source registries{RESET}")
-    mine = str(SKILLS_DIR)
+    # Our skills/ plus each vendored repo's skills/ folder, which the sparse
+    # checkout leaves holding only the skill we pinned.
+    ours = [str(SKILLS_DIR)] + [str((VENDOR / n / spec["path"]).parent)
+                                for n, spec in EXTERNAL.items()]
     changed = problems = 0
 
     for path in files:
@@ -226,32 +307,34 @@ def sync_registries(harnesses, only, force, fix, uninstall):
                 problems += 1
                 continue
 
-        present = any(str(expand(e.get("path", ""))) == mine for e in entries)
+        have = {str(expand(e.get("path", ""))) for e in entries}
 
         if uninstall:
-            if not present:
+            if not have & set(ours):
                 print(f"  {DIM}·{RESET} {path} — no entry of ours")
                 continue
             if not fix:
-                warn(f"would drop our entry from {path}")
+                warn(f"would drop our entries from {path}")
                 continue
             data["entries"] = [e for e in entries
-                               if str(expand(e.get("path", ""))) != mine]
+                               if str(expand(e.get("path", ""))) not in ours]
             path.write_text(json.dumps(data, indent=2) + "\n")
-            ok(f"dropped our entry from {path}")
+            ok(f"dropped our entries from {path}")
             changed += 1
             continue
 
-        if present:
+        # A vendored source that is not on disk yet is not registered yet.
+        missing = [d for d in ours if d not in have and Path(d).is_dir()]
+        if not missing:
             ok(f"{path}")
         elif fix:
             path.parent.mkdir(parents=True, exist_ok=True)
-            data["entries"] = entries + [{"path": mine}]
+            data["entries"] = entries + [{"path": d} for d in missing]
             path.write_text(json.dumps(data, indent=2) + "\n")
-            ok(f"{path} (entry added, {len(entries)} existing kept)")
+            ok(f"{path} ({len(missing)} entry(ies) added, {len(entries)} existing kept)")
             changed += 1
         else:
-            warn(f"{path} — missing our entry (use --fix)")
+            warn(f"{path} — missing {len(missing)} of our entries (use --fix)")
             problems += 1
     print()
     return changed, problems
@@ -289,10 +372,14 @@ def main():
     print("=" * 66)
     print(f" Source: {SKILLS_DIR}\n")
 
-    available = [s for s in SKILLS if (SKILLS_DIR / s / "SKILL.md").exists()]
-    pending = [s for s in SKILLS if s not in available]
+    changed, problems = (0, 0) if args.uninstall else vendor_external(args.fix)
+
+    sources = skill_sources()
+    available = {s: src for s, src in sources.items()
+                 if (src / "SKILL.md").exists() or args.uninstall}
+    pending = [s for s in sources if s not in available]
     if pending:
-        print(f"{DIM}Not yet authored (skipped): {', '.join(pending)}{RESET}\n")
+        print(f"{DIM}Not available yet (skipped): {', '.join(pending)}{RESET}\n")
 
     targets, notes = plan(harnesses, set(args.harness or []), args.all)
     for note in notes:
@@ -300,7 +387,6 @@ def main():
     if notes:
         print()
 
-    changed = problems = 0
     for target, labels in targets:
         c, p = sync_dir(target, labels, available,
                         args.fix, args.prune, args.uninstall)

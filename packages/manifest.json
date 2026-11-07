@@ -772,6 +772,20 @@
           "note": "code/terminal -> SVG or PNG"
         },
         {
+          "id": "anot8",
+          "provides": [
+            "anot8"
+          ],
+          "brew": null,
+          "arch": null,
+          "debian": null,
+          "fallback": {
+            "kind": "npm",
+            "name": "@ksprashu/anot8"
+          },
+          "note": "screenshot callouts from a JSON spec, rendered headlessly with pixel bounds back for a visual check — /shot's annotator, plus a stdio MCP server"
+        },
+        {
           "id": "keystroke-display",
           "mac_app": "KeyCastr.app",
           "provides": [

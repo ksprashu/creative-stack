@@ -10,10 +10,14 @@ one command — and the skills install into **Claude Code, Codex, Gemini CLI, An
 and Cursor**, whichever of them the machine has.
 
 ```bash
-git clone https://github.com/<you>/creative-stack ~/code/github/creative-stack
+git clone https://github.com/ksprashu/creative-stack.git ~/code/github/creative-stack
 cd ~/code/github/creative-stack
 bash scripts/bootstrap.sh
 ```
+
+📖 **See also:**
+* **[Audio Routing, Karaoke & Mastering Playbook (`skills/sound/references/routing-and-karaoke.md`)](skills/sound/references/routing-and-karaoke.md)** — Loopback 2, Audio Hijack 4, BlackHole, PipeWire, stem separation, and Reaper vocal production.
+* **[Contributing Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md)** · **[Security Policy (`SECURITY.md`)](SECURITY.md)** · **[Changelog (`CHANGELOG.md`)](CHANGELOG.md)**
 
 ---
 
@@ -27,11 +31,12 @@ bash scripts/bootstrap.sh
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
-| `/sound` | Voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers |
+| `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
 | `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD |
+| `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
-Underneath: 96 packages across 15 groups, headless bridges to Blender, Inkscape and GIMP, and
-three opt-in MCP servers.
+Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP, Reaper and
+Audacity, and four opt-in MCP servers.
 
 ---
 
@@ -134,6 +139,10 @@ unconditionally because Codex reads it and a freshly imaged box has no harness
 config yet. Symlinks pointing outside this repo are never touched and the shared `skills.json`
 registries are merged, so `agent-skill-forge` and creative-stack coexist in the same directories.
 
+A skill whose home is another repo (anot8) is listed in `EXTERNAL` in `sync_skills.py` with a
+commit SHA. `--fix` sparse-clones it into `~/.local/share/creative-stack/skills/` and links it
+like the rest; moving the pin is a one-line diff you read first.
+
 MCP servers are only ever written at **project** scope. Codex and the Antigravity IDE have no
 project scope, so they get a printed `mcp add` command instead of an edit — otherwise enabling
 Blender here would start a Blender server in every unrelated repo you open.
@@ -191,10 +200,11 @@ for generation, free software everywhere else.
     from `os.environ` and fail fast if absent. `creative-stack.env` holds paths only, and
     `validate_skills.py` blocks a commit containing an `AIza…` / `sk-…` / `ghp_…` token or a
     hardcoded home directory.
-*   **MCP servers are pinned to reviewed commit SHAs**, never `main`. These are third-party
-    servers that execute code with your filesystem access — a published advisory documents command
-    injection in a popular ImageMagick MCP server. All three are registered **disabled**; enable
-    one per session with `claude mcp enable blender`.
+*   **MCP servers are pinned to reviewed commit SHAs or exact package versions**, never `main`
+    or `@latest`. These servers execute code with your filesystem access — a published advisory
+    documents command injection in a popular ImageMagick MCP server. All are registered at
+    project scope and stay **pending** until approved; enable one per session with
+    `claude mcp enable blender`.
 *   **`/shot` redacts before it publishes.** Screenshots of a terminal or a cloud console are the
     most common way a token gets into a blog post.
 
@@ -207,8 +217,9 @@ brand/            tokens.json — colours, type, logo. tokens.local.json overrid
 packages/         manifest.json — the single source of truth for what gets installed
 config/           harnesses.json — every agent runtime's skills dirs and MCP dialect
 scripts/          bootstrap, hostenv, packages, doctor, bridge/MCP installers, skill sync
-skills/           the eight skills, symlinked into every installed harness
+skills/           the eight skills, symlinked into every installed harness (plus anot8, vendored)
 templates/        screenshot frames, deck themes, motion-graphics templates, the Blender studio rig
+tests/            stdlib-only unit tests for pure functions across skills and scripts
 out/              everything generated. gitignored.
 ```
 
