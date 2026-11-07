@@ -1,0 +1,6 @@
+# Audacity 4 Multi-Track Session List-of-Files (.lof)
+# Open in Audacity 4.app: File -> Open -> audacity-session.lof
+window
+file "sting.wav" offset 0.0
+file "voice-clean.wav" offset 1.0
+file "bed.wav" offset 0.0

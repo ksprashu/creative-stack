@@ -1,0 +1,12 @@
+{
+  "engine": "gemini",
+  "style": "",
+  "gap": 0.6,
+  "model": null,
+  "voice": "Charon",
+  "chunks": [
+    {
+      "text": "Welcome to Creative Stack. Every skill writes a reviewable intermediate file before rendering pixels or audio."
+    }
+  ]
+}
