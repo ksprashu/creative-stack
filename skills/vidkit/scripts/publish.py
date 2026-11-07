@@ -179,7 +179,7 @@ def main():
         cmd += ["-map", "0:v:0"]
         if meta["has_audio"]:
             cmd += ["-map", "0:a:0"]
-        if args.copy_video or meta.get("video_codec") == "h264":
+        if args.copy_video:
             cmd += ["-c:v", "copy"]
         else:
             cmd += ["-c:v", "libx264", "-preset", args.preset, "-crf", "20",

@@ -47,6 +47,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -54,8 +55,21 @@ import soundlib as S  # noqa: E402
 import hostenv  # noqa: E402
 
 
+def validate_youtube_url(url):
+    """Ensure `url` is a valid http(s) URL and cannot be parsed as a CLI option."""
+    text = str(url or "").strip()
+    parsed = urllib.parse.urlparse(text)
+    if not text or text.startswith("-") or parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"invalid YouTube URL (expected http:// or https://): {url!r}")
+    return text
+
+
 def download_youtube_karaoke(url, out_dir, stem="karaoke"):
     """Download a YouTube karaoke video (1080p MP4) and extract a 48kHz 24-bit WAV backing track."""
+    try:
+        safe_url = validate_youtube_url(url)
+    except ValueError as exc:
+        S.die(str(exc))
     yt_dlp = hostenv.which("yt-dlp")
     if not yt_dlp:
         S.die("yt-dlp not found. " + hostenv.package_hint("yt-dlp"))
@@ -70,7 +84,7 @@ def download_youtube_karaoke(url, out_dir, stem="karaoke"):
             yt_dlp, "--no-playlist",
             "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
             "--merge-output-format", "mp4",
-            "-o", str(video_mp4), str(url),
+            "-o", str(video_mp4), "--", safe_url,
         ])
     if not backing_wav.exists():
         print(f"🎵 extracting 48 kHz / 24-bit WAV backing track → {backing_wav.name} …")
@@ -363,7 +377,9 @@ def render_karaoke_video(audio_wav, ass_path, out_mp4, src_media=None, brand=Non
     accent_hex = (palette.get("accent") or "#1A73E8").lstrip("#")
     width, height = tokens.get("video", {}).get("resolution", [1920, 1080])
     info = S.probe(audio_wav)
-    esc_ass = str(ass_path).replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
+    has_ass = bool(ass_path and Path(ass_path).exists())
+    esc_ass = (str(ass_path).replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
+               if has_ass else "")
 
     has_video = False
     if src_media and Path(src_media).exists():
@@ -375,11 +391,15 @@ def render_karaoke_video(audio_wav, ass_path, out_mp4, src_media=None, brand=Non
 
     print(f"🎬 rendering karaoke video ({width}x{height}) → {out_mp4.name} …")
     if has_video:
+        vf_chain = (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x{bg_hex}"
+        )
+        if has_ass:
+            vf_chain += f",boxblur=20:2,eq=brightness=-0.22,ass='{esc_ass}'"
         S.ffmpeg([
             "-i", str(src_media), "-i", str(audio_wav),
-            "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                   f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x{bg_hex},"
-                   f"boxblur=20:2,eq=brightness=-0.22,ass='{esc_ass}'",
+            "-vf", vf_chain,
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k",
@@ -387,14 +407,14 @@ def render_karaoke_video(audio_wav, ass_path, out_mp4, src_media=None, brand=Non
         ])
         return
 
+    vf_tail = f",ass='{esc_ass}'" if has_ass else ""
     S.ffmpeg([
         "-f", "lavfi", "-i",
         f"color=c=0x{bg_hex}:s={width}x{height}:r=30:d={info['duration']:.3f}",
         "-i", str(audio_wav),
         "-filter_complex",
         f"[1:a]showwaves=s={width}x220:mode=cline:rate=30:colors=0x{accent_hex}@0.55[wave];"
-        f"[0:v][wave]overlay=0:(H-h)/2-40,"
-        f"ass='{esc_ass}'[v]",
+        f"[0:v][wave]overlay=0:(H-h)/2-40{vf_tail}[v]",
         "-map", "[v]", "-map", "1:a:0",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k",
@@ -427,15 +447,49 @@ def build_karaoke_plan(args, stem_base, dst):
         "artifacts": {
             "instrumental": str(args.instrumental or stem_base.with_name(f"{stem_base.name}.instrumental.wav")),
             "vocals": str(args.vocals or stem_base.with_name(f"{stem_base.name}.vocals.wav")),
-            "video": str(stem_base.with_name(f"{stem_base.name}.video.mp4")),
+            "video": str(stem_base.with_name(f"{stem_base.name}-video.mp4")),
             "lyrics_md": str(stem_base.with_name(f"{stem_base.name}.lyrics.md")),
             "srt": str(args.srt or stem_base.with_name(f"{stem_base.name}.srt")),
             "words": str(args.words or stem_base.with_name(f"{stem_base.name}.json")),
             "ass": str(stem_base.with_name(f"{stem_base.name}.ass")),
-            "audio_mix": str(dst if dst.suffix.lower() in (".wav", ".flac", ".mp3", ".m4a", ".opus")
+            "audio_mix": str(dst if dst.suffix.lower() in (".wav", ".flac", ".mp3", ".m4a", ".opus", ".ogg")
                              else stem_base.with_name(f"{stem_base.name}.mix.wav")),
         },
     }
+
+
+def apply_plan_overrides(plan, args, argv, dst):
+    """Apply CLI flag overrides onto a loaded `.karaoke.json` plan."""
+    plan["output"] = str(dst)
+    if args.sing:
+        plan["sing"] = str(args.sing)
+    if "--guide-db" in argv or any(a.startswith("--guide-db=") for a in argv):
+        plan["guide_db"] = None if args.guide_db == "off" else float(args.guide_db)
+    if "--reverb" in argv or any(a.startswith("--reverb=") for a in argv):
+        plan["sing_reverb"] = float(args.reverb)
+    if args.reaper or dst.suffix.lower() == ".rpp":
+        plan["reaper"] = True
+    if args.arm_mic:
+        plan["arm_mic"] = True
+    if "--monitoring" in argv or any(a.startswith("--monitoring=") for a in argv):
+        plan["monitoring"] = args.monitoring
+    if args.apply_live:
+        plan["apply_live"] = True
+    if args.open:
+        plan["open"] = True
+    if args.brand:
+        plan["brand"] = args.brand
+    if args.accent:
+        plan["accent"] = args.accent
+    if args.srt:
+        plan.setdefault("artifacts", {})["srt"] = str(args.srt)
+    if args.words:
+        plan.setdefault("artifacts", {})["words"] = str(args.words)
+    if dst.suffix.lower() in (".wav", ".flac", ".mp3", ".m4a", ".opus", ".ogg"):
+        plan.setdefault("artifacts", {})["audio_mix"] = str(dst)
+    else:
+        plan.setdefault("artifacts", {})["audio_mix"] = str(dst.with_suffix(".mix.wav"))
+    return plan
 
 
 def main():
@@ -495,6 +549,7 @@ def main():
         if not plan_path.exists():
             S.die(f"karaoke plan not found: {plan_path}")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        apply_plan_overrides(plan, args, sys.argv[1:], dst)
     else:
         if not (args.input or args.youtube or (args.instrumental and args.vocals)):
             ap.error("provide --input (-i), --youtube (-y), or --from-plan")
@@ -508,7 +563,7 @@ def main():
     art = plan["artifacts"]
     inst_wav = Path(art["instrumental"])
     voc_wav = Path(art["vocals"])
-    video_mp4 = Path(art.get("video", stem_base.with_name(f"{stem_base.name}.video.mp4")))
+    video_mp4 = Path(art.get("video", stem_base.with_name(f"{stem_base.name}-video.mp4")))
     lyrics_md = Path(art.get("lyrics_md", stem_base.with_name(f"{stem_base.name}.lyrics.md")))
     srt_path = Path(art["srt"])
     words_path = Path(art["words"])
@@ -547,7 +602,7 @@ def main():
     # If the caller asked only for a Reaper session (.rpp) from a YouTube karaoke track,
     # build the session directly without re-encoding a full video unless requested.
     if dst.suffix.lower() != ".rpp":
-        if voc_wav.exists():
+        if voc_wav.exists() or srt_path.exists():
             ensure_karaoke_subtitles(
                 voc_wav, srt_path, words_path, ass_path,
                 brand=plan.get("brand"), accent=plan.get("accent"),
@@ -564,8 +619,8 @@ def main():
         S.report(mix_wav, "mastered karaoke audio")
         S.report_loudness(mix_wav, target_i, target_tp)
 
-        if dst.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv") and ass_path.exists():
-            render_karaoke_video(mix_wav, ass_path, dst,
+        if dst.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
+            render_karaoke_video(mix_wav, ass_path if ass_path.exists() else None, dst,
                                  src_media=vid_source, brand=plan.get("brand"))
             S.report(dst, "karaoke video")
 

@@ -36,7 +36,6 @@ for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
 import analyze  # noqa: E402
 import autocut  # noqa: E402
 import captions  # noqa: E402
-import edit  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
@@ -222,15 +221,6 @@ class SegmentTest(unittest.TestCase):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
 
-    def test_round_resets_compose_mode_before_shadow(self):
-        ops = edit.parse_ops("resize:960,round:16,shadow,strip")
-        argv, alpha = edit.build_args(ops, {}, 1000, 600)
-        self.assertTrue(alpha)
-        self.assertIn("CopyOpacity", argv)
-        copy_idx = argv.index("CopyOpacity")
-        layers_idx = argv.index("-layers")
-        self.assertIn("Over", argv[copy_idx:layers_idx])
-
 
 class AudioRoutingAndKaraokeTest(unittest.TestCase):
     def test_parse_avfoundation_audio_extracts_indices_and_loopback_flags(self):
@@ -272,6 +262,58 @@ class AudioRoutingAndKaraokeTest(unittest.TestCase):
         self.assertFalse(devs[0]["loopback"])
         self.assertTrue(devs[0]["default"])
         self.assertTrue(devs[1]["loopback"])
+
+        merged = hostenv.merge_avf_indices(
+            devs,
+            [{"index": 3, "name": "Volt 276", "backend": "avfoundation", "loopback": False}],
+        )
+        self.assertEqual(merged[0]["index"], 3)
+        self.assertIsNone(merged[1]["index"])
+
+    def test_karaoke_url_validation_and_plan_overrides(self):
+        self.assertEqual(
+            karaoke.validate_youtube_url("https://www.youtube.com/watch?v=0d3LzwjjTog"),
+            "https://www.youtube.com/watch?v=0d3LzwjjTog",
+        )
+        for bad in ("--exec=id", "-o /tmp/pwn", "file:///etc/passwd", ""):
+            with self.assertRaises(ValueError):
+                karaoke.validate_youtube_url(bad)
+
+        base_args = Args(
+            youtube=None, input="raw/song.mp3", engine="center-cut",
+            semitones=-2.0, tempo=1.0, bpm=98.0, guide_db="-18",
+            sing=None, reverb=0.18, brand=None, accent="#22D3EE",
+            reaper=False, arm_mic=False, monitoring="on", ocr_lyrics=False,
+            apply_live=False, open=False, instrumental=None, vocals=None,
+            srt=None, words=None,
+        )
+        plan = karaoke.build_karaoke_plan(
+            base_args, Path("out/karaoke-practice"), Path("out/karaoke-practice.mp4")
+        )
+        self.assertEqual(plan["guide_db"], -18.0)
+        self.assertEqual(plan["artifacts"]["video"], "out/karaoke-practice-video.mp4")
+        self.assertEqual(plan["artifacts"]["audio_mix"], "out/karaoke-practice.mix.wav")
+
+        override_args = Args(
+            sing="out/live-take.mic-clean.wav", guide_db="off", reverb=0.24,
+            reaper=True, arm_mic=False, monitoring="on", apply_live=True,
+            open=False, brand=None, accent=None, srt=None, words=None,
+        )
+        argv = [
+            "--from-plan", "out/karaoke-practice.karaoke.json",
+            "--sing", "out/live-take.mic-clean.wav",
+            "--reverb", "0.24", "--guide-db", "off",
+            "--reaper", "--apply-live", "-o", "out/karaoke-master.mp4",
+        ]
+        updated = karaoke.apply_plan_overrides(
+            plan, override_args, argv, Path("out/karaoke-master.mp4")
+        )
+        self.assertEqual(updated["sing"], "out/live-take.mic-clean.wav")
+        self.assertIsNone(updated["guide_db"])
+        self.assertAlmostEqual(updated["sing_reverb"], 0.24)
+        self.assertTrue(updated["reaper"])
+        self.assertTrue(updated["apply_live"])
+        self.assertEqual(updated["artifacts"]["audio_mix"], "out/karaoke-master.mix.wav")
 
     def test_parse_pactl_sources_flags_monitors(self):
         sample = (

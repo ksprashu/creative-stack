@@ -196,16 +196,10 @@ def detect_active_bounds(window_rms_db, duration, silence_floor_db=-42.0,
 def measure_window_rms(path, window_sec=2.0):
     """Measure RMS level (dBFS) in `window_sec` buckets across an audio file."""
     info = S.probe(path)
+    samples_per_win = max(int(info["rate"] * window_sec), 1024)
     proc = S.run([
         S.need("ffmpeg"), "-hide_banner", "-nostdin", "-i", str(path),
-        "-af", f"asegment=timestamps={ '|'.join(str(i) for i in range(int(window_sec), int(info['duration']) + 1, int(window_sec))) },"
-               "astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level",
-        "-f", "null", "-"
-    ], capture=True, check=False)
-    # Simpler, faster, version-agnostic pass using ebur128 momentary/short-term or astats per-frame:
-    proc = S.run([
-        S.need("ffmpeg"), "-hide_banner", "-nostdin", "-i", str(path),
-        "-af", f"asetnsamples={int(info['rate'] * window_sec)},astats=metadata=1:reset=1,"
+        "-af", f"asetnsamples={samples_per_win},astats=metadata=1:reset=1,"
                "ametadata=print:key=lavfi.astats.Overall.RMS_level",
         "-f", "null", "-"
     ], capture=True, check=False)
@@ -764,6 +758,7 @@ def apply_reascript_live(lua_path, report_path=None):
             if report_path.exists() and report_path.stat().st_mtime > before and report_path.stat().st_size:
                 return True
             time.sleep(0.3)
+        return False
     return True
 
 
@@ -868,10 +863,18 @@ def main():
         S.report(lua_path, "ReaScript live FX configurator")
 
         if args.apply_live:
-            apply_reascript_live(lua_path, report_path)
-            if report_path.exists():
+            if apply_reascript_live(lua_path, report_path=report_path) and report_path.exists():
                 S.report(report_path, "verified live Reaper FX state")
-        elif args.open:
+            else:
+                print(f"⚠ timed out waiting for live Reaper FX report → {report_path}", file=sys.stderr)
+        if args.render:
+            target = Path(args.render)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not render(dst, target):
+                S.die(f"Reaper did not write {target}. Open {dst} and check the "
+                      f"render settings (File -> Render).")
+            S.report(target)
+        if args.open and not args.apply_live:
             opener = "open" if S.hostenv.IS_MAC else "xdg-open"
             subprocess.run([opener, str(dst)], check=False)
         return 0

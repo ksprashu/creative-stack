@@ -17,7 +17,6 @@ bash scripts/bootstrap.sh
 
 📖 **See also:**
 * **[Audio Routing, Karaoke & Mastering Playbook (`skills/sound/references/routing-and-karaoke.md`)](skills/sound/references/routing-and-karaoke.md)** — Loopback 2, Audio Hijack 4, BlackHole, PipeWire, stem separation, and Reaper vocal production.
-* **[Contributing Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md)** · **[Security Policy (`SECURITY.md`)](SECURITY.md)** · **[Changelog (`CHANGELOG.md`)](CHANGELOG.md)**
 
 ---
 

@@ -156,6 +156,22 @@ def print_device_inventory(as_json=False):
     return 0
 
 
+def run_live_ffmpeg(ff_args, duration, expected_outputs):
+    """Run ffmpeg for live capture, allowing Ctrl-C (SIGINT / exit 255) when open-ended."""
+    try:
+        proc = S.ffmpeg(ff_args, check=bool(duration))
+    except KeyboardInterrupt:
+        if duration or not all(Path(p).exists() and Path(p).stat().st_size > 44 for p in expected_outputs):
+            raise
+        print("\n⏹️  stopped recording; finalizing stems …")
+        return
+    if not duration and proc.returncode not in (0, 255, -2):
+        tail = (proc.stderr or "").strip().splitlines()[-12:]
+        S.die(f"ffmpeg failed (exit {proc.returncode}):\n  " + "\n  ".join(tail))
+    if not all(Path(p).exists() and Path(p).stat().st_size > 44 for p in expected_outputs):
+        S.die("capture interrupted before audio frames were written")
+
+
 def capture_streams(plan, dst):
     """Run ffmpeg against one or two live audio inputs and write 24-bit WAV stems."""
     mic = plan.get("device")
@@ -175,7 +191,8 @@ def capture_streams(plan, dst):
             mic["index"] if mic.get("index") is not None else mic["name"])
         loop_in = hostenv.audio_input_args(
             loop["index"] if loop.get("index") is not None else loop["name"])
-        print(f"🎙️  capturing mic ({mic['name']}) + loopback ({loop['name']}) …")
+        print(f"🎙️  capturing mic ({mic['name']}) + loopback ({loop['name']}) "
+              f"({f'{duration}s' if duration else 'press Ctrl-C to stop'}) …")
         cmd = [
             *mic_in, *loop_in,
             "-map", "0:a:0", *dur_args, "-ar", str(rate), "-ac", "1",
@@ -183,7 +200,7 @@ def capture_streams(plan, dst):
             "-map", "1:a:0", *dur_args, "-ar", str(rate), "-ac", str(channels),
             "-c:a", "pcm_s24le", str(loop_wav),
         ]
-        S.ffmpeg(cmd)
+        run_live_ffmpeg(cmd, duration, [mic_wav, loop_wav])
         if plan.get("clean_mic"):
             cleaned = dst.with_name(f"{dst.stem}.mic-clean.wav")
             clean_py = Path(__file__).resolve().parent / "clean.py"
@@ -210,8 +227,8 @@ def capture_streams(plan, dst):
     raw_dst = dst.with_name(f"{dst.stem}.raw.wav") if plan.get("clean_mic") else dst
     print(f"🎙️  capturing from '{chosen['name']}' "
           f"({f'{duration}s' if duration else 'press Ctrl-C to stop'}) …")
-    S.ffmpeg([*in_args, *dur_args, "-ar", str(rate), "-ac", str(channels),
-              *S.encode_args(raw_dst), str(raw_dst)])
+    run_live_ffmpeg([*in_args, *dur_args, "-ar", str(rate), "-ac", str(channels),
+                     *S.encode_args(raw_dst), str(raw_dst)], duration, [raw_dst])
     if plan.get("clean_mic"):
         clean_py = Path(__file__).resolve().parent / "clean.py"
         S.run([sys.executable, str(clean_py), "-i", str(raw_dst), "-o", str(dst)])

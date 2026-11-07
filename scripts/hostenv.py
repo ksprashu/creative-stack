@@ -579,6 +579,14 @@ def audio_capture_backend():
     return "alsa"
 
 
+def merge_avf_indices(sp_devices, avf_devices):
+    """Attach matching AVFoundation indices to system_profiler devices (or None)."""
+    idx_by_name = {d["name"].lower(): d["index"] for d in avf_devices}
+    for d in sp_devices:
+        d["index"] = idx_by_name.get(d["name"].lower())
+    return sp_devices
+
+
 def audio_devices():
     """List available audio capture & loopback devices on this host."""
     if IS_MAC:
@@ -602,10 +610,7 @@ def audio_devices():
         except (OSError, subprocess.SubprocessError):
             pass
         if sp:
-            idx_by_name = {d["name"].lower(): d["index"] for d in avf}
-            for i, d in enumerate(sp):
-                d["index"] = idx_by_name.get(d["name"].lower(), i)
-            return sp
+            return merge_avf_indices(sp, avf)
         return avf
     if shutil.which("pactl"):
         try:
