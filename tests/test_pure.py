@@ -30,12 +30,15 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
-            "skills/raster/scripts"):
+            "skills/raster/scripts", "skills/sound/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
 import autocut  # noqa: E402
 import captions  # noqa: E402
+import hostenv  # noqa: E402
+import karaoke  # noqa: E402
+import record  # noqa: E402
 import segment  # noqa: E402
 import voice  # noqa: E402
 
@@ -215,6 +218,71 @@ class SegmentTest(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
+
+
+class AudioRoutingAndKaraokeTest(unittest.TestCase):
+    def test_parse_avfoundation_audio_extracts_indices_and_loopback_flags(self):
+        sample = (
+            "[AVFoundation indev @ 0x1] AVFoundation video devices:\n"
+            "[AVFoundation indev @ 0x1] [0] Capture screen 0\n"
+            "[AVFoundation indev @ 0x1] AVFoundation audio devices:\n"
+            "[AVFoundation indev @ 0x1] [0] Volt 276\n"
+            "[AVFoundation indev @ 0x1] [1] Loopback Audio\n"
+            "[AVFoundation indev @ 0x1] [2] BlackHole 2ch\n"
+        )
+        devs = hostenv.parse_avfoundation_audio(sample)
+        self.assertEqual([d["name"] for d in devs],
+                         ["Volt 276", "Loopback Audio", "BlackHole 2ch"])
+        self.assertEqual([d["loopback"] for d in devs], [False, True, True])
+
+    def test_parse_system_profiler_marks_rogue_amoeba_virtual_device_as_loopback(self):
+        payload = json.dumps({
+            "SPAudioDataType": [{
+                "_items": [
+                    {
+                        "_name": "Volt 276",
+                        "coreaudio_device_input": 2,
+                        "coreaudio_device_manufacturer": "Universal Audio",
+                        "coreaudio_device_transport": "coreaudio_device_type_usb",
+                        "coreaudio_default_audio_input_device": "spaudio_yes",
+                    },
+                    {
+                        "_name": "Clean Mic",
+                        "coreaudio_device_input": 2,
+                        "coreaudio_device_manufacturer": "Rogue Amoeba Software, Inc.",
+                        "coreaudio_device_transport": "coreaudio_device_type_virtual",
+                    },
+                ]
+            }]
+        })
+        devs = hostenv.parse_system_profiler_audio(payload)
+        self.assertEqual(len(devs), 2)
+        self.assertFalse(devs[0]["loopback"])
+        self.assertTrue(devs[0]["default"])
+        self.assertTrue(devs[1]["loopback"])
+
+    def test_parse_pactl_sources_flags_monitors(self):
+        sample = (
+            "42\talsa_output.pci.analog-stereo.monitor\tPipeWire\ts32le 2ch 48000Hz\tIDLE\n"
+            "43\talsa_input.usb-Universal_Audio_Volt_276\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n"
+        )
+        devs = hostenv.parse_pactl_sources(sample)
+        self.assertEqual([d["loopback"] for d in devs], [True, False])
+
+    def test_record_resolve_device_and_hijack_js(self):
+        devs = [{"index": 0, "name": "Clean Mic", "backend": "avfoundation", "loopback": True}]
+        self.assertEqual(record.resolve_device_spec("clean", devs)["name"], "Clean Mic")
+        js = record.build_hijack_js("Karaoke Live", "start", "/tmp/out.wav")
+        self.assertIn('app.sessionWithName("Karaoke Live")', js)
+        self.assertIn("session.start()", js)
+        self.assertIn('rec.fileName = "out"', js)
+
+    def test_karaoke_filters_preserve_bass_and_bound_reverb(self):
+        filt = karaoke.center_cut_instrumental_filter(130)
+        self.assertIn("lowpass=f=130[bass]", filt)
+        self.assertIn("highpass=f=130,pan=stereo|c0=c0-0.92*c1|c1=c1-0.92*c0[side]", filt)
+        self.assertIn("aecho=", karaoke.vocal_reverb_chain(0.25))
+        self.assertNotIn("aecho=", karaoke.vocal_reverb_chain(0.0))
 
 
 if __name__ == "__main__":

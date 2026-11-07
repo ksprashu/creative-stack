@@ -31,6 +31,7 @@ the machine they happen to be on.
 import json
 import os
 import platform as _platform
+import re
 import shutil
 import subprocess
 import sys
@@ -408,6 +409,25 @@ APP_BRIDGES = {
                   "/usr/lib/libreoffice/program/soffice",
                   "/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice"],
     },
+    "reaper": {
+        "macos": ["/Applications/REAPER.app/Contents/MacOS/REAPER"],
+        "linux": ["/usr/bin/reaper", "/usr/local/bin/reaper",
+                  "/opt/REAPER/reaper"],
+    },
+    "audacity": {
+        "macos": ["/Applications/Audacity 4.app/Contents/MacOS/Audacity",
+                  "/Applications/Audacity.app/Contents/MacOS/Audacity"],
+        "linux": ["/usr/bin/audacity", "/usr/local/bin/audacity",
+                  "/var/lib/flatpak/exports/bin/org.audacityteam.Audacity"],
+    },
+    "audio-hijack": {
+        "macos": ["/Applications/Audio Hijack.app/Contents/MacOS/Audio Hijack"],
+        "linux": [],
+    },
+    "loopback": {
+        "macos": ["/Applications/Loopback.app/Contents/MacOS/Loopback"],
+        "linux": [],
+    },
 }
 
 
@@ -455,6 +475,208 @@ def obs_config_dir():
     if IS_MAC:
         return Path.home() / "Library/Application Support/obs-studio"
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "obs-studio"
+
+
+# ------------------------------------------------------------ audio routing ---
+
+LOOPBACK_KEYWORDS = (
+    "loopback", "blackhole", "ark", "eqmac", "soundflower",
+    "monitor", "pipewire", "vb-cable", "voicemeeter", "virtual",
+)
+
+
+def is_loopback_device(name):
+    """True when an audio source name looks like a virtual loopback/passthrough."""
+    low = (name or "").lower()
+    return low.endswith(".monitor") or any(k in low for k in LOOPBACK_KEYWORDS)
+
+
+def parse_avfoundation_audio(output):
+    """Extract [{index, name, backend, loopback}] from ffmpeg avfoundation output."""
+    devices = []
+    in_audio = False
+    for line in (output or "").splitlines():
+        if "AVFoundation audio devices:" in line:
+            in_audio = True
+            continue
+        if in_audio and "AVFoundation" in line and "devices:" in line:
+            break
+        if not in_audio:
+            continue
+        m = re.search(r"\[(\d+)\]\s+(.+?)\s*$", line)
+        if m:
+            idx, name = int(m.group(1)), m.group(2).strip()
+            devices.append({
+                "index": idx,
+                "name": name,
+                "backend": "avfoundation",
+                "loopback": is_loopback_device(name),
+            })
+    return devices
+
+
+def parse_system_profiler_audio(output):
+    """Extract CoreAudio input devices from `system_profiler SPAudioDataType -json`.
+
+    Loopback 2 virtual devices can have any user-chosen name (e.g. 'Clean Mic'),
+    so checking `coreaudio_device_transport == 'coreaudio_device_type_virtual'`
+    and the manufacturer ('Rogue Amoeba') catches virtual passthrough devices
+    that a name-only substring match would miss.
+    """
+    try:
+        doc = json.loads(output or "{}")
+    except json.JSONDecodeError:
+        return []
+    devices = []
+    for group in doc.get("SPAudioDataType", []):
+        for item in group.get("_items", []):
+            inputs = int(item.get("coreaudio_device_input") or 0)
+            if inputs <= 0:
+                continue
+            name = (item.get("_name") or "").strip()
+            mfg = (item.get("coreaudio_device_manufacturer") or "").strip()
+            transport = (item.get("coreaudio_device_transport") or "").strip()
+            virtual = (
+                transport == "coreaudio_device_type_virtual"
+                or any(v in mfg.lower() for v in ("rogue amoeba", "existential audio", "bitgapp"))
+                or is_loopback_device(name)
+            )
+            devices.append({
+                "index": None,
+                "name": name,
+                "manufacturer": mfg,
+                "transport": transport.replace("coreaudio_device_type_", ""),
+                "channels": inputs,
+                "rate": int(item.get("coreaudio_device_srate") or 48000),
+                "default": item.get("coreaudio_default_audio_input_device") == "spaudio_yes",
+                "backend": "avfoundation",
+                "loopback": virtual,
+            })
+    return devices
+
+
+def parse_pactl_sources(output):
+    """Extract [{index, name, backend, loopback}] from `pactl list short sources`."""
+    devices = []
+    for line in (output or "").splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) >= 2 and parts[0].isdigit():
+            idx, name = int(parts[0]), parts[1].strip()
+            devices.append({
+                "index": idx,
+                "name": name,
+                "backend": "pulse",
+                "loopback": is_loopback_device(name),
+            })
+    return devices
+
+
+def audio_capture_backend():
+    if IS_MAC:
+        return "avfoundation"
+    if shutil.which("pactl"):
+        return "pulse"
+    return "alsa"
+
+
+def audio_devices():
+    """List available audio capture & loopback devices on this host."""
+    if IS_MAC:
+        avf = []
+        ff = ffmpeg_bin("ffmpeg") or "ffmpeg"
+        try:
+            proc = subprocess.run(
+                [ff, "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                capture_output=True, text=True, timeout=15,
+            )
+            avf = parse_avfoundation_audio(proc.stdout + "\n" + proc.stderr)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        sp = []
+        try:
+            proc = subprocess.run(
+                ["system_profiler", "SPAudioDataType", "-json"],
+                capture_output=True, text=True, timeout=15,
+            )
+            sp = parse_system_profiler_audio(proc.stdout)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        if sp:
+            idx_by_name = {d["name"].lower(): d["index"] for d in avf}
+            for i, d in enumerate(sp):
+                d["index"] = idx_by_name.get(d["name"].lower(), i)
+            return sp
+        return avf
+    if shutil.which("pactl"):
+        try:
+            proc = subprocess.run(
+                ["pactl", "list", "short", "sources"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return parse_pactl_sources(proc.stdout)
+        except (OSError, subprocess.SubprocessError):
+            return []
+    return []
+
+
+def audio_input_args(device):
+    """FFmpeg input arguments (`[-f, <backend>, -i, <spec>]`) for a capture device."""
+    backend = audio_capture_backend()
+    if backend == "avfoundation":
+        spec = str(device)
+        return ["-f", "avfoundation", "-i", spec if spec.startswith(":") else f":{spec}"]
+    return ["-f", backend, "-i", str(device)]
+
+
+def audio_routing_status():
+    """Installed virtual audio drivers, loopback tools, and DAW bridges."""
+    hal_drivers = []
+    if IS_MAC:
+        hal_dir = Path("/Library/Audio/Plug-Ins/HAL")
+        if hal_dir.is_dir():
+            hal_drivers = sorted(p.name for p in hal_dir.glob("*.driver"))
+    else:
+        for daemon in ("pipewire", "pulseaudio", "jackd"):
+            if shutil.which(daemon):
+                hal_drivers.append(daemon)
+    return {
+        "audio_hijack": str(find_app("audio-hijack") or "") or None,
+        "loopback_app": str(find_app("loopback") or "") or None,
+        "reaper": str(find_app("reaper") or "") or None,
+        "audacity": str(find_app("audacity") or "") or None,
+        "switchaudio": which("SwitchAudioSource"),
+        "hal_drivers": hal_drivers,
+    }
+
+
+def run_audio_hijack_script(script_path):
+    """Execute an `.ahcommand` JavaScript file via Audio Hijack 4 on macOS."""
+    if not IS_MAC:
+        return False, "Audio Hijack is macOS-only; use PipeWire/Pulse loopback (`--device`) on Linux."
+    app = find_app("audio-hijack")
+    if not app:
+        return False, "Audio Hijack.app is not installed in /Applications."
+    try:
+        proc = subprocess.run(
+            ["open", "-g", "-a", "/Applications/Audio Hijack.app", str(script_path)],
+            capture_output=True, text=True, timeout=15,
+        )
+        if proc.returncode != 0:
+            return False, (proc.stderr or proc.stdout).strip() or "open -a Audio Hijack failed"
+        return True, f"dispatched {Path(script_path).name} to Audio Hijack.app"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+
+
+def demucs_cmd():
+    """Invocation list for Demucs stem separation, or None when not installed."""
+    venv_demucs = REPO_ROOT / ".venv/bin/demucs"
+    if venv_demucs.is_file() and os.access(venv_demucs, os.X_OK):
+        return [str(venv_demucs)]
+    found = which("demucs")
+    if found:
+        return [found]
+    return None
 
 
 # ----------------------------------------------------------------- secrets ---

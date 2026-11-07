@@ -60,7 +60,7 @@ def info(msg):
 
 # The stable names skills call. The candidate paths behind each one differ per
 # platform and live in hostenv.APP_BRIDGES, which doctor.py reads too.
-BRIDGE_NAMES = ["blender", "inkscape", "gimp-console", "gimp-app"]
+BRIDGE_NAMES = ["blender", "inkscape", "gimp-console", "gimp-app", "reaper", "audacity"]
 
 RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
 

@@ -1,16 +1,21 @@
 # Creative Stack — optional ML dependencies (~1GB). Not installed by default.
 #
-# Only `/raster segment.py --refine sam2` needs these: box-prompted SAM 2
-# refinement of Gemini's selection masks. Everything else in the stack runs
-# without torch. Install into the stack's venv with:
+# Only `/raster segment.py --refine sam2` (box-prompted SAM 2 mask refinement)
+# and `/sound karaoke.py --engine demucs` (htdemucs neural vocal/instrumental
+# stem separation) need these. Everything else in the stack runs without torch
+# (`karaoke.py` falls back to bass-preserving stereo phase cancellation).
+# Install into the stack's venv with:
 #
 #   uv pip install --python .venv/bin/python -r requirements-ml.txt
 #
 # Weights download on first use from Hugging Face (facebook/sam2.1-hiera-*,
-# Apache-2.0). Ultralytics/YOLO is deliberately absent: it is AGPL-3.0.
+# Apache-2.0) and Meta's Demucs hub (MIT). Ultralytics/YOLO is deliberately
+# absent: it is AGPL-3.0.
 
 # Floors are security floors too: torch.load RCE (CVE-2025-32434) is fixed in
 # 2.6, and the transformers advisories GHSA-59p9-h35m-wg4g / CVE-2026-29784 in 5.0.
 torch>=2.6
 torchvision>=0.21         # Sam2ImageProcessor will not load without it; 0.21 pairs with torch 2.6
+torchaudio>=2.6           # Demucs stem separation audio I/O
 transformers>=5.0         # Sam2Model / Sam2Processor landed in 4.56
+demucs>=4.0               # Hybrid Transformer Demucs (htdemucs) vocal/instrumental stem separation

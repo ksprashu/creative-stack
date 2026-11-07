@@ -1,22 +1,25 @@
 ---
 name: sound
-description: Voice cleanup, EBU R128 loudness, music beds and logo stings generated from scratch, ducked mixes, and a Reaper session when a human ear is needed. Trigger via /sound.
+description: Live capture via Loopback/Audio Hijack/PipeWire, voice cleanup, EBU R128 loudness, music beds and logo stings, ducked mixes, stem-separated karaoke with key shift, and Reaper sessions. Trigger via /sound.
 disable-model-invocation: true
 ---
 
-# Sound: Voice, Music and the Mix
+# Sound: Capture, Voice, Music, Karaoke and the Mix
 
-The audio half of a video, and the whole of a podcast. Repair the voice, generate a bed that
-carries no licence, duck one under the other, and land on the loudness target the platform
-actually wants.
+The audio half of a video, and the whole of a podcast or karaoke session. Capture live microphones
+and virtual loopback busses, repair the voice, generate a bed that carries no licence, duck one
+under the other, separate stems and shift keys for karaoke, and land on the loudness target the
+platform actually wants.
 
 ---
 
 ## 🎯 Goal
 
-A recording made on whatever microphone was to hand becomes a track that sounds deliberate, at
-−14 LUFS with a −1 dBTP ceiling, every time and without a DAW. Music that goes under it is
-generated here, so there is no attribution to chase and no takedown to answer.
+A recording made on whatever microphone or virtual loopback bus was to hand becomes a track that
+sounds deliberate, at −14 LUFS with a −1 dBTP ceiling, every time and without a DAW. Music that
+goes under it is generated here, so there is no attribution to chase and no takedown to answer;
+songs fed into `karaoke.py` come back split into instrumental and vocal stems, transposed to the
+singer's key, and rendered with word-sweeping `\kf` lyrics.
 
 Loudness is measured, not eyeballed: every script ends by re-measuring what it wrote and telling
 you whether it hit the target.
@@ -24,6 +27,19 @@ you whether it hit the target.
 ---
 
 ## 📋 Step-by-Step Workflow
+
+0. **Capture live audio or drive Audio Hijack / Loopback when starting from a live source:**
+
+   ```bash
+   python3 scripts/record.py --list-devices
+   python3 scripts/record.py --device "Volt 276" --loopback "Clean Mic" --duration 30 --clean -o out/take.wav
+   python3 scripts/record.py --hijack-session "Podcast Capture" --hijack-action start
+   ```
+
+   `--list-devices` enumerates hardware inputs alongside virtual passthrough drivers (Rogue Amoeba
+   Loopback `ARK.driver`, BlackHole, eqMac on macOS; PipeWire / PulseAudio `.monitor` sources on
+   Linux). Passing both `--device` and `--loopback` records separate 24-bit 48 kHz `.mic.wav` and
+   `.loopback.wav` stems before mixing them, and writes a reviewable `<stem>.capture.json` plan.
 
 1. **Repair the voice first.** Everything downstream assumes this has happened:
 
@@ -88,6 +104,21 @@ you whether it hit the target.
 
    Each stem lands on its own track at the right offset and gain. `--render` drives Reaper's
    headless renderer; `--open` just opens the session.
+
+7. **Separate stems, shift key/tempo, and render synchronized karaoke (`karaoke.py`):**
+
+   ```bash
+   python3 scripts/karaoke.py -i song.mp3 -o out/karaoke.mp4
+   python3 scripts/karaoke.py -i song.wav --semitones -2 --guide-db -18 -o out/karaoke.mp4
+   python3 scripts/karaoke.py -i song.wav --sing out/take.mic.wav --reaper -o out/performance.mp4
+   ```
+
+   `--engine auto` uses Demucs v4 (`htdemucs`) when installed and falls back to bass-preserving
+   stereo phase cancellation (`center-cut`, which keeps stereo bass below 130 Hz intact while
+   cancelling center-panned vocals). `rubberband` shifts pitch (`--semitones`) and tempo
+   (`--tempo`) with formant preservation; `whisper-cli` transcribes the isolated vocal stem for
+   word timings; and `/vidkit captions.py --style karaoke` burns `\kf` word-sweeping lyrics into
+   the 1080p output.
 
 ---
 
