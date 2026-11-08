@@ -31,8 +31,7 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    ```
    For a desktop app window, capture with `screencapture -w out/raw.png` first.
 
-2. **Redact and annotate** — with **anot8** when callouts have to land on particular UI
-   elements. Its spec takes percentages and live anchors (`"@submit.right"`), and every render
+2. **Redact and annotate** — with **anot8**. Its spec takes percentages and live anchors (`"@submit.right"`), and every render
    hands back each annotation's pixel `bounds` and a preview, so placement is checked by
    looking, not guessed once. The `anot8` skill has the spec reference; the `anot8_*` MCP
    tools are the same engine with the PNG returned straight into context.
@@ -54,11 +53,8 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    finds it by description; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
    at `x: xmin/10 %`, `y: ymin/10 %`, `w: (xmax - xmin)/10 %`, `h: (ymax - ymin)/10 %` covers it.
 
-   `annotate.py` is the no-Node alternative: brand-token colours, a YAML spec in fractions of
-   width/height. `make demo` uses it.
-   ```bash
-   python3 scripts/annotate.py -i out/raw.png -s steps.yaml -o out/annotated.png
-   ```
+   A solid redaction is a `box` with `"fillOpacity": 1`. To pixelate rather than blur, use
+   `/raster`'s `segment.py --query "..." --op pixelate -o out.png`.
 
 3. **Frame** — composite onto the brand backdrop:
    ```bash
@@ -77,29 +73,32 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
 
 ### A three-step annotated console walkthrough
 
-`steps.yaml`:
-```yaml
-annotations:
-  - type: redact          # always first — later marks draw on top
-    at: [0.62, 0.04, 0.34, 0.05]
-    style: blur
-  - type: box
-    at: [0.05, 0.18, 0.38, 0.10]
-    label: "1"
-  - type: box
-    at: [0.05, 0.34, 0.38, 0.10]
-    label: "2"
-  - type: arrow
-    from: [0.46, 0.39]
-    to:   [0.70, 0.52]
-  - type: text
-    at: [0.71, 0.50]
-    text: "Deploy runs here"
+`out/raw.anot8.json`, after `anot8 init` (image and palette filled in):
+```json
+{
+  "version": 1,
+  "image": { "source": "raw.png", "width": 2880, "height": 1800 },
+  "palette": { "brand": "#1A73E8", "warn": "#EA4335", "ok": "#34A853", "note": "#FBBC04" },
+  "defaults": { "color": "warn" },
+  "annotations": [
+    { "type": "blur", "id": "account", "x": "62%", "y": "4%", "width": "34%", "height": "5%",
+      "badge": false },
+    { "type": "box", "id": "source", "x": "5%", "y": "18%", "width": "38%", "height": "10%",
+      "note": "Pick the source repository" },
+    { "type": "box", "id": "deploy", "x": "5%", "y": "34%", "width": "38%", "height": "10%",
+      "note": "Deploy runs here" },
+    { "type": "arrow", "from": "@deploy.right", "to": ["70%", "52%"], "badge": false }
+  ]
+}
 ```
+Blurs go first, so later marks draw on top. Badges number 1..N and `--md` writes the matching
+notes list.
 
 ```bash
 python3 scripts/capture.py --url https://console.cloud.google.com --output out/raw.png
-python3 scripts/annotate.py -i out/raw.png -s steps.yaml -o out/annotated.png
+anot8 init out/raw.png -o out/raw.anot8.json --palette out/palette.json
+# add the annotations above, then:
+anot8 render out/raw.anot8.json -o out/annotated.png --md out/notes.md
 python3 scripts/frame.py  -i out/annotated.png -o out/final.png --chrome browser \
   --url "console.cloud.google.com" --caption "Deploying a service from the console"
 oxipng -o 4 --strip safe out/final.png
@@ -130,9 +129,9 @@ vhs demo.tape
 ## 🚫 Hard Constraints
 
 *   **NEVER** publish a screenshot without checking for secrets first — project IDs, emails,
-    tokens, account pickers. Apply a `redact` annotation, do not crop and hope.
-*   **NEVER** use `style: block` redaction over text you intend to stay unreadable *and* look
-    natural — use `blur`; use `block` only when total removal is the point.
+    tokens, account pickers. Apply a `blur` annotation, do not crop and hope.
+*   **NEVER** use a solid box over text you intend to stay unreadable *and* look natural — use
+    `blur`; use `"fillOpacity": 1` only when total removal is the point.
 *   **NEVER** ship an anot8 render without opening the PNG it wrote. The returned `bounds`
     say where a box *is*, not whether it covers the thing; a blur 10px short of a token's
     last characters leaves the suffix readable.

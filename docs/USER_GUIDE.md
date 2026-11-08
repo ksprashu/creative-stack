@@ -46,7 +46,7 @@ flowchart LR
     end
 
     subgraph Intermediates["Reviewable Intermediates"]
-        I1["steps.yaml"]
+        I1[".anot8.json"]
         I2[".d2 / .mmd / .dot"]
         I3["cut.json / .srt / .ass"]
         I4[".motion.json / .plan.json"]
@@ -67,7 +67,7 @@ flowchart LR
 
 ### Core Invariants
 
-1. **Reviewable Intermediates Before Pixels**: Every non-trivial operation writes a plain-text specification (`cut.json`, `steps.yaml`, `.srt`, `.ass`, `.motion.json`, `.plan.json`, `deck.md`, `edit.xml`, `.rpp`) before rendering final media. Fixing a typo, adjusting a timestamp, or dropping a bad take is a text edit rather than a full re-capture.
+1. **Reviewable Intermediates Before Pixels**: Every non-trivial operation writes a plain-text specification (`cut.json`, `.anot8.json`, `.srt`, `.ass`, `.motion.json`, `.plan.json`, `deck.md`, `edit.xml`, `.rpp`) before rendering final media. Fixing a typo, adjusting a timestamp, or dropping a bad take is a text edit rather than a full re-capture.
 2. **One Brand Token File**: Colours, typography, callout dimensions, shadow softness, caption rules, and audio loudness targets (`-14 LUFS` integrated, `-1.0 dBTP` true peak) live in `brand/tokens.json`.
 3. **Three Portability Chokepoints**:
    - `packages/manifest.json` defines every package across Homebrew, pacman/AUR, and apt, plus `cargo`/`npm`/`uv`/`font-release` fallbacks and the binaries each package `provides`.
@@ -122,7 +122,7 @@ Every script loads `brand/tokens.json` via `scripts/brand.py`. Override the acti
 | `color.brand` | `blue` (`#4285F4`), `red` (`#EA4335`), `yellow` (`#FBBC04`), `green` (`#34A853`) | `/vector`, `/deck`, `/vidkit`, `/render3d` |
 | `gradient` | `hero`, `warm`, `subtle`, `dusk` | `/shot frame.py`, `/raster cutout.py`, `/render3d`, `/vidkit motion.py` |
 | `font` | `display`, `body`, `mono` | `/shot`, `/vidkit`, `/deck`, `/vector` |
-| `screenshot` | `deviceScaleFactor` (`2`), `viewport` (`[1440, 900]`), `padding` (`64`), `cornerRadius` (`12`), `calloutColor` (`#EA4335`), `calloutStroke` (`3`) | `/shot capture.py`, `/shot annotate.py`, `/shot frame.py` |
+| `screenshot` | `deviceScaleFactor` (`2`), `viewport` (`[1440, 900]`), `padding` (`64`), `cornerRadius` (`12`), `calloutColor` (`#EA4335`), `calloutStroke` (`3`) | `/shot capture.py`, `/shot frame.py` |
 | `video` | `resolution` (`[1920, 1080]`), `fps` (`30`), `safeMargin` (`64`), `captionFont`, `captionSize` (`42`), `loudnessTarget` (`-14`), `truePeak` (`-1.0`) | `/vidkit captions.py`, `/vidkit motion.py`, `/vidkit publish.py`, `/sound clean.py`, `/sound mix.py` |
 
 Inspect resolved tokens or export Marp CSS at any time:
@@ -149,16 +149,14 @@ Produces crisp 2x Retina screenshots, numbered callout overlays, privacy redacti
 | Script | Purpose | Key Flags |
 | :--- | :--- | :--- |
 | `skills/shot/scripts/capture.py` | Headless Chromium capture at `@2x` DPI with CSS transition freezing, cookie-banner hiding, and selector waiting | `--url <url>`, `-o <png>`, `--selector <css>`, `--wait-for <css>`, `--dark`, `--keep-banners` |
-| `skills/shot/scripts/annotate.py` | Declarative callouts (`redact`, `box`, `arrow`, `text`, `spotlight`) from a YAML/JSON spec via ImageMagick | `-i <png>`, `-o <png>`, `-s/--spec <yaml/json>`, `--pixels`, `--mode light\|dark`, `--brand <profile>` |
+| `anot8` (npm CLI + MCP server) | Callouts (`box`, `ellipse`, `arrow`, `text`, `pin`) and borderless `blur`/`highlight` from a JSON spec; every render prints each mark's pixel bounds | `init <png> --palette <json>`, `render <spec> -o <png> --md <notes>`, `apply <spec> --ops <json>`, `validate <spec>` |
 | `skills/shot/scripts/frame.py` | Wraps a screenshot in a window or browser chrome over a brand gradient card with shadow | `-i <png>`, `-o <png>`, `--chrome window\|browser\|none`, `--url <str>`, `--backdrop subtle\|hero\|warm\|dusk`, `--caption <str>` |
 
 #### Concrete Workflow
 
 ```bash
-# 1. Annotate a screenshot from a declarative YAML spec
-.venv/bin/python skills/shot/scripts/annotate.py \
-  -i fixtures/raw.png -o out/hero-annotated.png \
-  --spec fixtures/steps.yaml
+# 1. Annotate a screenshot from an anot8 spec (callouts plus a blurred token)
+anot8 render fixtures/steps.anot8.json -o out/hero-annotated.png
 
 # 2. Place inside a browser frame on the brand hero gradient
 .venv/bin/python skills/shot/scripts/frame.py \
@@ -411,7 +409,8 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 1. **Capture & Annotate UI (`/shot`)**:
    ```bash
    .venv/bin/python skills/shot/scripts/capture.py --url https://example.com -o out/raw.png
-   .venv/bin/python skills/shot/scripts/annotate.py -i out/raw.png -o out/annotated.png --spec steps.yaml
+   anot8 init out/raw.png -o out/raw.anot8.json   # then add annotations
+   anot8 render out/raw.anot8.json -o out/annotated.png
    .venv/bin/python skills/shot/scripts/frame.py -i out/annotated.png -o out/hero.png --backdrop hero
    ```
 2. **Render Architecture Diagram (`/vector`)**:

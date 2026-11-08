@@ -898,13 +898,13 @@
           <h2 id="title-shot"><span class="skill-tag">/shot</span> Parametric Callouts, Secret Redaction &amp; Retina Framing</h2>
           <p class="section-desc">
             Transforms a raw screenshot containing an exposed API token into a redacted, numbered tutorial step
-            from a YAML specification, and wraps it in a `@2x` browser chrome over the brand hero gradient.
+            from an anot8 JSON spec, and wraps it in a `@2x` browser chrome over the brand hero gradient.
           </p>
         </div>
         <div class="engine-badges">
-          <span class="engine-badge">annotate.py</span>
+          <span class="engine-badge">anot8 1.1.0</span>
           <span class="engine-badge">frame.py</span>
-          <span class="engine-badge">ImageMagick 7.1.2 + Chromium</span>
+          <span class="engine-badge">Chromium</span>
         </div>
       </div>
 
@@ -916,13 +916,13 @@
         </div>
         <div class="pipeline-stage">
           <span class="stage-role">2. REVIEWABLE INTERMEDIATE</span>
-          <span class="stage-artifact">fixtures/steps.yaml</span>
+          <span class="stage-artifact">fixtures/steps.anot8.json</span>
           <span class="stage-note">Declarative coordinates for box, badge <code>#1</code>, blur region, and arrow</span>
         </div>
         <div class="pipeline-stage">
           <span class="stage-role">3. TRANSFORMED OUTPUTS</span>
           <span class="stage-artifact">shot-annotated.png &amp; shot-framed.png</span>
-          <span class="stage-note">Gaussian-redacted callout PNG (32 KB) + 2x framed hero card (724 KB)</span>
+          <span class="stage-note">Blur-redacted callout PNG (37 KB) + 2x framed hero card (724 KB)</span>
         </div>
       </div>
 
@@ -939,7 +939,7 @@
               <img src="assets/raw.png" alt="Original unredacted screenshot showing exposed API key" width="1000" height="600">
               <img src="assets/shot-annotated.png" class="wipe-after" alt="Transformed screenshot with numbered callout 1 and blurred API token" width="1000" height="600">
               <span class="wipe-tag before">ORIGINAL: raw.png</span>
-              <span class="wipe-tag after">TRANSFORMED:annotate.py</span>
+              <span class="wipe-tag after">TRANSFORMED:anot8</span>
               <div class="wipe-divider"></div>
             </div>
             <div class="wipe-controls">
@@ -966,32 +966,31 @@
       <div class="spec-grid">
         <div class="spec-box">
           <div class="spec-box-header">
-            <span>Intermediate Spec: fixtures/steps.yaml</span>
-            <a href="assets/steps.yaml" download>Download YAML</a>
+            <span>Intermediate Spec: fixtures/steps.anot8.json</span>
+            <a href="assets/steps.anot8.json" download>Download JSON</a>
           </div>
-          <pre class="spec-pre">annotations:
-  - type: redact
-    at: [0.26, 0.47, 0.50, 0.08]
-    style: blur
-  - type: box
-    at: [0.20, 0.08, 0.60, 0.16]
-    label: "1"
-  - type: arrow
-    from: [0.30, 0.70]
-    to:   [0.48, 0.55]
-  - type: text
-    at: [0.12, 0.72]
-    text: "Token redacted"</pre>
+          <pre class="spec-pre">{
+  "version": 1,
+  "image": { "source": "raw.png", "width": 1000, "height": 600 },
+  "palette": { "brand": "#1A73E8", "warn": "#EA4335", "ok": "#34A853", "note": "#FBBC04" },
+  "defaults": { "color": "warn" },
+  "annotations": [
+    { "type": "blur", "id": "token", "x": "26%", "y": "47%", "width": "50%", "height": "8%",
+      "badge": false },
+    { "type": "box", "id": "deploy", "x": "20%", "y": "8%", "width": "60%", "height": "16%",
+      "note": "Deploy runs here" },
+    { "type": "arrow", "from": ["30%", "70%"], "to": "@token.bottom", "badge": false },
+    { "type": "text", "at": ["12%", "72%"], "text": "Token redacted", "badge": false }
+  ]
+}</pre>
         </div>
         <div class="spec-box">
           <div class="spec-box-header">
             <span>Exact CLI Reproduction</span>
-            <span>skills/shot/scripts/</span>
+            <span>anot8 + skills/shot/scripts/</span>
           </div>
           <pre class="spec-pre"># 1. Apply declarative callouts &amp; secret redaction
-.venv/bin/python skills/shot/scripts/annotate.py \
-  -i fixtures/raw.png -o out/demo/annotated.png \
-  --spec fixtures/steps.yaml
+anot8 render fixtures/steps.anot8.json -o out/demo/annotated.png
 
 # 2. Wrap in browser window chrome on hero backdrop
 .venv/bin/python skills/shot/scripts/frame.py \
