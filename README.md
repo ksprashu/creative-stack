@@ -207,7 +207,8 @@ for generation, free software everywhere else.
     project scope and stay **pending** until approved; enable one per session with
     `claude mcp enable blender`.
 *   **`/shot` redacts before it publishes.** Screenshots of a terminal or a cloud console are the
-    most common way a token gets into a blog post.
+    most common way a token gets into a blog post. `scan.py` finds keys, labelled values,
+    emails and project ids by OCR and writes the blurs; `scan.py --check` gates the final image.
 
 ---
 

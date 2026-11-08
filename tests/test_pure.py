@@ -30,7 +30,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
-            "skills/raster/scripts", "skills/sound/scripts"):
+            "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
@@ -39,6 +39,7 @@ import captions  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
+import scan  # noqa: E402
 import segment  # noqa: E402
 import session  # noqa: E402
 import sync_skills  # noqa: E402
@@ -436,6 +437,86 @@ class SyncSkillsTest(unittest.TestCase):
             self.assertFalse(stale_ours.is_symlink())
             self.assertTrue(stale_foreign.is_symlink())
             self.assertTrue(pending_ext.is_symlink())
+
+
+def ocr_line(text, x=0, y=0, char_w=10, h=20):
+    """Words of one OCR line, laid out monospace from (x, y)."""
+    words = []
+    for token in text.split(" "):
+        words.append({"text": token, "box": [x, y, len(token) * char_w, h]})
+        x += (len(token) + 1) * char_w
+    return words
+
+
+class ScanTest(unittest.TestCase):
+    def kinds(self, text):
+        words = ocr_line(text)
+        line, _ = scan.line_text(words)
+        return [(kind, line[s:e]) for kind, s, e in scan.find(words)]
+
+    def test_parse_tsv_groups_lines_and_scales_back(self):
+        tsv = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop"
+               "\twidth\theight\tconf\ttext\n"
+               "1\t1\t0\t0\t0\t0\t0\t0\t2000\t1200\t-1\t\n"
+               "5\t1\t1\t1\t1\t1\t20\t40\t100\t30\t96\ttoken:\n"
+               "5\t1\t1\t1\t1\t2\t140\t40\t300\t30\t0\tacme\u2014x\n"
+               "5\t1\t2\t1\t1\t1\t20\t400\t80\t30\t91\tother\n")
+        size, lines = scan.parse_tsv(tsv, scale=2.0)
+        self.assertEqual(size, (1000, 600))
+        self.assertEqual([[w["text"] for w in line] for line in lines],
+                         [["token:", "acme-x"], ["other"]])   # zero confidence kept
+        self.assertEqual(lines[0][1]["box"], [70, 20, 150, 15])
+
+    def test_known_key_survives_ocr_misreads_and_splits(self):
+        self.assertEqual(self.kinds("key AlZzaSyFAKE_EXAMPLE_KEY_ 1234567"),
+                         [("google-api-key", "AlZzaSyFAKE_EXAMPLE_KEY_ 1234567")])
+
+    def test_labelled_values_blur_the_value_not_the_name(self):
+        self.assertEqual(self.kinds("DB_PASSWORD=hunter2"), [("label", "hunter2")])
+        self.assertEqual(self.kinds("Password: hunter2 x"), [("label", "hunter2 x")])
+
+    def test_key_inside_label_is_one_hit(self):
+        self.assertEqual(self.kinds("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"),
+                         [("aws-access-key", "AKIAIOSFODNN7EXAMPLE")])
+
+    def test_email_project_and_card(self):
+        self.assertEqual(self.kinds("mail jane.doe@example.com now"),
+                         [("email", "jane.doe@example.com")])
+        self.assertEqual(self.kinds("gcloud config set project acme-billing-412907"),
+                         [("project", "acme-billing-412907")])
+        self.assertEqual(self.kinds("card 4242 4242 4242 4242"),
+                         [("card", "4242 4242 4242 4242")])
+        self.assertEqual(self.kinds("order 4242 4242 4242 4241"), [])   # fails Luhn
+
+    def test_distractors_are_not_flagged(self):
+        for text in ("9f2c1e7a4b3d5f60718293a4b5c6d7e8f9012345",
+                     "Opening https://console.cloud.google.com/run/detail/us-central1/api",
+                     "Wrote /Users/me/projects/site/build/index.html in 2.3s",
+                     "Updated property [core/project]."):
+            self.assertEqual(self.kinds(text), [], text)
+
+    def test_unknown_random_token_is_flagged(self):
+        self.assertEqual(self.kinds("id Zx9Qm2LpV7rT4kWb8NcY3hJd6FgS1aEu"),
+                         [("entropy", "Zx9Qm2LpV7rT4kWb8NcY3hJd6FgS1aEu")])
+
+    def test_scan_lines_clips_a_word_to_the_value_and_masks_it(self):
+        [hit] = scan.scan_lines([ocr_line("GITHUB_TOKEN=ghp_abc")])
+        self.assertEqual(hit["box"], [120, 0, 80, 20])     # one char of slack before
+        self.assertEqual(hit["preview"], "ghp_… (7 chars)")
+        self.assertNotIn("abc", json.dumps(hit))
+
+    def test_merge_into_spec_skips_covered_and_puts_blurs_first(self):
+        spec = {"annotations": [
+            {"type": "box", "id": "scan-1", "x": 0, "y": 0, "width": 10, "height": 10},
+            {"type": "blur", "x": "10%", "y": "10%", "width": "50%", "height": "20%"}]}
+        findings = [{"kind": "email", "box": [120, 70, 200, 20]},    # inside the blur
+                    {"kind": "label", "box": [600, 400, 100, 20]}]
+        self.assertEqual(scan.merge_into_spec(spec, findings, (1000, 600)), 1)
+        first = spec["annotations"][0]
+        self.assertEqual((first["type"], first["id"]), ("blur", "scan-2"))
+        self.assertEqual([first["x"], first["y"], first["width"], first["height"]],
+                         [595, 395, 110, 30])
+        self.assertEqual(len(spec["annotations"]), 3)
 
 
 if __name__ == "__main__":

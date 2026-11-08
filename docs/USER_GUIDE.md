@@ -150,6 +150,7 @@ Produces crisp 2x Retina screenshots, numbered callout overlays, privacy redacti
 | :--- | :--- | :--- |
 | `skills/shot/scripts/capture.py` | Headless Chromium capture at `@2x` DPI with CSS transition freezing, cookie-banner hiding, and selector waiting | `--url <url>`, `-o <png>`, `--selector <css>`, `--wait-for <css>`, `--dark`, `--keep-banners` |
 | `anot8` (npm CLI + MCP server) | Callouts (`box`, `ellipse`, `arrow`, `text`, `pin`) and borderless `blur`/`highlight` from a JSON spec; every render prints each mark's pixel bounds | `init <png> --palette <json>`, `render <spec> -o <png> --md <notes>`, `apply <spec> --ops <json>`, `validate <spec>` |
+| `skills/shot/scripts/scan.py` | OCRs a screenshot (tesseract) and adds an anot8 `blur` for each key, labelled value, email, GCP project id, card number or random-looking string; `--ai` adds Gemini for faces, avatars, names and pickers; reports only a masked preview of each hit | `-i <png>`, `--spec <anot8.json>`, `--check`, `--ai`, `--json <path>` |
 | `skills/shot/scripts/frame.py` | Wraps a screenshot in a window or browser chrome over a brand gradient card with shadow | `-i <png>`, `-o <png>`, `--chrome window\|browser\|none`, `--url <str>`, `--backdrop subtle\|hero\|warm\|dusk`, `--caption <str>` |
 
 #### Concrete Workflow
