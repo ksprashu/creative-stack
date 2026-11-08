@@ -21,6 +21,8 @@ SHELL   := /bin/bash
 PY      := .venv/bin/python
 SCRIPTS := scripts
 OUT     := out
+# The installed CLI when bootstrap put it on PATH, else the version .mcp.json pins.
+ANOT8   := $(shell command -v anot8 2>/dev/null || echo npx -y @ksprashu/anot8@1.1.0)
 
 .DEFAULT_GOAL := help
 .PHONY: help install headless doctor check plan host skills lint test demo demo-clean \
@@ -85,9 +87,8 @@ demo: demo-clean  ## end-to-end smoke test — six artefacts in out/
 	  --chrome browser --url "console.cloud.google.com" --backdrop hero \
 	  --caption "Deploy in 90 seconds"
 	@echo ""
-	@echo "▸ 2/6  screenshot → numbered callouts from YAML"
-	$(PY) skills/shot/scripts/annotate.py -i fixtures/raw.png -o $(OUT)/demo/annotated.png \
-	  --spec fixtures/steps.yaml
+	@echo "▸ 2/6  screenshot → numbered callouts and a redaction (anot8)"
+	$(ANOT8) render fixtures/steps.anot8.json -o $(OUT)/demo/annotated.png
 	@echo ""
 	@echo "▸ 3/6  recording → silence cut"
 	$(PY) skills/vidkit/scripts/autocut.py -i fixtures/rec.mp4 -o $(OUT)/demo/cut.json \
