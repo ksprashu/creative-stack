@@ -30,13 +30,17 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
-            "skills/raster/scripts"):
+            "skills/raster/scripts", "skills/sound/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
 import autocut  # noqa: E402
 import captions  # noqa: E402
+import hostenv  # noqa: E402
+import karaoke  # noqa: E402
+import record  # noqa: E402
 import segment  # noqa: E402
+import session  # noqa: E402
 import sync_skills  # noqa: E402
 import voice  # noqa: E402
 
@@ -216,6 +220,178 @@ class SegmentTest(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
+
+
+class AudioRoutingAndKaraokeTest(unittest.TestCase):
+    def test_parse_avfoundation_audio_extracts_indices_and_loopback_flags(self):
+        sample = (
+            "[AVFoundation indev @ 0x1] AVFoundation video devices:\n"
+            "[AVFoundation indev @ 0x1] [0] Capture screen 0\n"
+            "[AVFoundation indev @ 0x1] AVFoundation audio devices:\n"
+            "[AVFoundation indev @ 0x1] [0] Volt 276\n"
+            "[AVFoundation indev @ 0x1] [1] Loopback Audio\n"
+            "[AVFoundation indev @ 0x1] [2] BlackHole 2ch\n"
+        )
+        devs = hostenv.parse_avfoundation_audio(sample)
+        self.assertEqual([d["name"] for d in devs],
+                         ["Volt 276", "Loopback Audio", "BlackHole 2ch"])
+        self.assertEqual([d["loopback"] for d in devs], [False, True, True])
+
+    def test_parse_system_profiler_marks_rogue_amoeba_virtual_device_as_loopback(self):
+        payload = json.dumps({
+            "SPAudioDataType": [{
+                "_items": [
+                    {
+                        "_name": "Volt 276",
+                        "coreaudio_device_input": 2,
+                        "coreaudio_device_manufacturer": "Universal Audio",
+                        "coreaudio_device_transport": "coreaudio_device_type_usb",
+                        "coreaudio_default_audio_input_device": "spaudio_yes",
+                    },
+                    {
+                        "_name": "Clean Mic",
+                        "coreaudio_device_input": 2,
+                        "coreaudio_device_manufacturer": "Rogue Amoeba Software, Inc.",
+                        "coreaudio_device_transport": "coreaudio_device_type_virtual",
+                    },
+                ]
+            }]
+        })
+        devs = hostenv.parse_system_profiler_audio(payload)
+        self.assertEqual(len(devs), 2)
+        self.assertFalse(devs[0]["loopback"])
+        self.assertTrue(devs[0]["default"])
+        self.assertTrue(devs[1]["loopback"])
+
+        merged = hostenv.merge_avf_indices(
+            devs,
+            [{"index": 3, "name": "Volt 276", "backend": "avfoundation", "loopback": False}],
+        )
+        self.assertEqual(merged[0]["index"], 3)
+        self.assertIsNone(merged[1]["index"])
+
+    def test_karaoke_url_validation_and_plan_overrides(self):
+        self.assertEqual(
+            karaoke.validate_youtube_url("https://www.youtube.com/watch?v=0d3LzwjjTog"),
+            "https://www.youtube.com/watch?v=0d3LzwjjTog",
+        )
+        for bad in ("--exec=id", "-o /tmp/pwn", "file:///etc/passwd", ""):
+            with self.assertRaises(ValueError):
+                karaoke.validate_youtube_url(bad)
+
+        base_args = Args(
+            youtube=None, input="raw/song.mp3", engine="center-cut",
+            semitones=-2.0, tempo=1.0, bpm=98.0, guide_db="-18",
+            sing=None, reverb=0.18, brand=None, accent="#22D3EE",
+            reaper=False, arm_mic=False, monitoring="on", ocr_lyrics=False,
+            apply_live=False, open=False, instrumental=None, vocals=None,
+            srt=None, words=None,
+        )
+        plan = karaoke.build_karaoke_plan(
+            base_args, Path("out/karaoke-practice"), Path("out/karaoke-practice.mp4")
+        )
+        self.assertEqual(plan["guide_db"], -18.0)
+        self.assertEqual(plan["artifacts"]["video"], "out/karaoke-practice-video.mp4")
+        self.assertEqual(plan["artifacts"]["audio_mix"], "out/karaoke-practice.mix.wav")
+
+        override_args = Args(
+            sing="out/live-take.mic-clean.wav", guide_db="off", reverb=0.24,
+            reaper=True, arm_mic=False, monitoring="on", apply_live=True,
+            open=False, brand=None, accent=None, srt=None, words=None,
+        )
+        argv = [
+            "--from-plan", "out/karaoke-practice.karaoke.json",
+            "--sing", "out/live-take.mic-clean.wav",
+            "--reverb", "0.24", "--guide-db", "off",
+            "--reaper", "--apply-live", "-o", "out/karaoke-master.mp4",
+        ]
+        updated = karaoke.apply_plan_overrides(
+            plan, override_args, argv, Path("out/karaoke-master.mp4")
+        )
+        self.assertEqual(updated["sing"], "out/live-take.mic-clean.wav")
+        self.assertIsNone(updated["guide_db"])
+        self.assertAlmostEqual(updated["sing_reverb"], 0.24)
+        self.assertTrue(updated["reaper"])
+        self.assertTrue(updated["apply_live"])
+        self.assertEqual(updated["artifacts"]["audio_mix"], "out/karaoke-master.mix.wav")
+
+    def test_parse_pactl_sources_flags_monitors(self):
+        sample = (
+            "42\talsa_output.pci.analog-stereo.monitor\tPipeWire\ts32le 2ch 48000Hz\tIDLE\n"
+            "43\talsa_input.usb-Universal_Audio_Volt_276\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n"
+        )
+        devs = hostenv.parse_pactl_sources(sample)
+        self.assertEqual([d["loopback"] for d in devs], [True, False])
+
+    def test_record_resolve_device_and_hijack_js(self):
+        devs = [{"index": 0, "name": "Clean Mic", "backend": "avfoundation", "loopback": True}]
+        self.assertEqual(record.resolve_device_spec("clean", devs)["name"], "Clean Mic")
+        js = record.build_hijack_js("Karaoke Live", "start", "/tmp/out.wav")
+        self.assertIn('app.sessionWithName("Karaoke Live")', js)
+        self.assertIn("session.start()", js)
+        self.assertIn('rec.fileName = "out"', js)
+
+    def test_karaoke_filters_preserve_bass_and_bound_reverb(self):
+        filt = karaoke.center_cut_instrumental_filter(130)
+        self.assertIn("lowpass=f=130[bass]", filt)
+        self.assertIn("highpass=f=130,pan=stereo|c0=c0-0.92*c1|c1=c1-0.92*c0[side]", filt)
+        self.assertIn("aecho=", karaoke.vocal_reverb_chain(0.25))
+        self.assertNotIn("aecho=", karaoke.vocal_reverb_chain(0.0))
+
+    def test_karaoke_ocr_deduplicates_consecutive_lyric_screens(self):
+        cues = [
+            (4, "This is the letter\nthat I didn't write"),
+            (10, "This is the letter\nthat I didn't write!"),
+            (28, "But you won't let me breathe"),
+        ]
+        deduped = karaoke.deduplicate_ocr_cues(cues)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0][0], 4.0)
+        self.assertIn("letter", deduped[0][1])
+        self.assertEqual(deduped[1][0], 28.0)
+
+    def test_session_reaper_gain_delay_and_automation_math(self):
+        self.assertAlmostEqual(session.db_to_linear_gain(0.0), 1.0, places=6)
+        self.assertAlmostEqual(session.db_to_linear_gain(-6.0206), 0.5, places=3)
+        self.assertAlmostEqual(session.reaper_delay_musical_norm(2.0), 0.0078125, places=7)
+        self.assertAlmostEqual(session.reaper_delay_musical_norm(8.0), 0.03125, places=7)
+
+        windows = [(0.0, float("-inf")), (8.0, -25.0), (20.0, -18.0),
+                   (40.0, -18.0), (150.0, -12.0), (170.0, float("-inf"))]
+        start, length = session.detect_active_bounds(windows, 175.0)
+        self.assertAlmostEqual(start, 7.2, places=1)
+        self.assertAlmostEqual(length, 144.3, places=1)
+
+        pts = session.compute_vocal_automation_points(windows)
+        self.assertEqual(pts[0], (0.0, 1.0))
+        # Quiet verse at 8s (-25 dBFS vs -18 dBFS median) gets boosted > 1.0
+        self.assertGreater(dict(pts)[8.0], 1.3)
+        # Loud outro at 150s (-12 dBFS vs -18 dBFS median) gets trimmed < 1.0
+        self.assertLess(dict(pts)[150.0], 0.9)
+
+    def test_session_parse_markers_and_produce_lua(self):
+        md = (
+            "# Lyrics\n"
+            "| Timestamp | Section | Lyric |\n"
+            "| :--- | :--- | :--- |\n"
+            '| `0:04` | **Verse 1** | *"This is the letter"* |\n'
+            "1:20 Chorus 2\n"
+        )
+        markers = session.parse_markers_text(md)
+        self.assertEqual(markers, [(4.0, "Verse 1: This is the letter"), (80.0, "Chorus 2")])
+
+        plan = {
+            "eq": {"hpf_hz": 95.0, "low_shelf_hz": 180.0, "low_shelf_db": 1.2,
+                   "mud_hz": 330.0, "mud_db": -4.0, "mud_bw": 0.75,
+                   "presence_hz": 3400.0, "presence_db": 4.2, "presence_bw": 1.1,
+                   "air_hz": 10500.0, "air_db": 3.2},
+            "echo": {"send_db": -12.5, "eighth_notes": 2.0, "feedback_norm": 0.3548},
+            "reverb": {"send_db": -10.5, "room_size": 0.72, "predelay_norm": 0.070},
+        }
+        lua = session.build_produce_lua("/tmp/song.rpp", "/tmp/fx-report.txt", plan, tempo=98.0)
+        self.assertIn("noprompt:", lua)
+        self.assertIn("10.0 ^ (db / 20.0)", lua)
+        self.assertIn("0.00781250", lua)
 
 
 class SyncSkillsTest(unittest.TestCase):

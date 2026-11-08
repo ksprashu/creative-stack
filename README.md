@@ -10,10 +10,13 @@ one command — and the skills install into **Claude Code, Codex, Gemini CLI, An
 and Cursor**, whichever of them the machine has.
 
 ```bash
-git clone https://github.com/<you>/creative-stack ~/code/github/creative-stack
+git clone https://github.com/ksprashu/creative-stack.git ~/code/github/creative-stack
 cd ~/code/github/creative-stack
 bash scripts/bootstrap.sh
 ```
+
+📖 **See also:**
+* **[Audio Routing, Karaoke & Mastering Playbook (`skills/sound/references/routing-and-karaoke.md`)](skills/sound/references/routing-and-karaoke.md)** — Loopback 2, Audio Hijack 4, BlackHole, PipeWire, stem separation, and Reaper vocal production.
 
 ---
 
@@ -27,12 +30,12 @@ bash scripts/bootstrap.sh
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
-| `/sound` | Voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers |
+| `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
 | `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD |
 | `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
-Underneath: 97 packages across 15 groups, headless bridges to Blender, Inkscape and GIMP, and
-four opt-in MCP servers.
+Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP, Reaper and
+Audacity, and four opt-in MCP servers.
 
 📖 **See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for the complete reference, per-skill CLI flags, intermediate file contracts, and multi-skill production recipes.**
 
@@ -217,6 +220,7 @@ config/           harnesses.json — every agent runtime's skills dirs and MCP d
 scripts/          bootstrap, hostenv, packages, doctor, bridge/MCP installers, skill sync
 skills/           the eight skills, symlinked into every installed harness (plus anot8, vendored)
 templates/        screenshot frames, deck themes, motion-graphics templates, the Blender studio rig
+tests/            stdlib-only unit tests for pure functions across skills and scripts
 out/              everything generated. gitignored.
 ```
 

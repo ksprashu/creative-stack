@@ -160,6 +160,11 @@ brew "fluid-synth"
 brew "lilypond"
 # programmatic synthesis
 brew "csound"
+# CLI to list and switch CoreAudio / Loopback / BlackHole input & output
+# devices on macOS
+brew "switchaudio-osx"
+# open-source 2-channel CoreAudio HAL virtual loopback driver on macOS
+cask "blackhole-2ch"
 
 # ------------------------------ speech-vision -------------------------------
 # local transcription; Metal on macOS, CPU/CUDA on Linux
@@ -190,6 +195,11 @@ cask "obs"
 cask "audacity"
 # DAW with ReaScript — most agent-scriptable
 cask "reaper"
+# Rogue Amoeba node-graph audio recorder with JavaScript & Shortcuts
+# automation on macOS
+cask "audio-hijack"
+# Rogue Amoeba virtual CoreAudio passthrough devices on macOS (ARK.driver)
+cask "loopback"
 cask "supercollider"
 cask "sonic-pi"
 

@@ -941,6 +941,29 @@
           "debian": "libjack-jackd2-dev",
           "optional": true,
           "note": "Reaper/SuperCollider audio backend on Linux. On Arch `jack` is a virtual package with two providers, and under --noconfirm pacman takes provider 1, jack2, without asking — so whoever pulls ffmpeg first chooses for everyone, and jack2 then conflicts with this entry. In the batched install that is harmless, because naming pipewire-jack in the same transaction settles the virtual. `early` is for the pass after a batch fails, where packages go in one at a time in list order: there, gifski in the image group reaches ffmpeg long before audio does. Sorting this to the front means the choice is already made."
+        },
+        {
+          "id": "switchaudio-osx",
+          "macos_only": true,
+          "provides": [
+            "SwitchAudioSource"
+          ],
+          "brew": "switchaudio-osx",
+          "arch": null,
+          "debian": null,
+          "optional": true,
+          "note": "CLI to list and switch CoreAudio / Loopback / BlackHole input & output devices on macOS"
+        },
+        {
+          "id": "blackhole-2ch",
+          "macos_only": true,
+          "provides": [],
+          "brew": "blackhole-2ch",
+          "cask": true,
+          "arch": null,
+          "debian": null,
+          "optional": true,
+          "note": "open-source 2-channel CoreAudio HAL virtual loopback driver on macOS"
         }
       ]
     },
@@ -1127,6 +1150,32 @@
           "gui": true,
           "optional": true,
           "note": "DAW with ReaScript \u2014 most agent-scriptable"
+        },
+        {
+          "id": "audio-hijack",
+          "macos_only": true,
+          "mac_app": "Audio Hijack.app",
+          "provides": [],
+          "brew": "audio-hijack",
+          "cask": true,
+          "arch": null,
+          "debian": null,
+          "gui": true,
+          "optional": true,
+          "note": "Rogue Amoeba node-graph audio recorder with JavaScript & Shortcuts automation on macOS"
+        },
+        {
+          "id": "loopback",
+          "macos_only": true,
+          "mac_app": "Loopback.app",
+          "provides": [],
+          "brew": "loopback",
+          "cask": true,
+          "arch": null,
+          "debian": null,
+          "gui": true,
+          "optional": true,
+          "note": "Rogue Amoeba virtual CoreAudio passthrough devices on macOS (ARK.driver)"
         },
         {
           "id": "supercollider",

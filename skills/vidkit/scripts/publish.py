@@ -129,6 +129,8 @@ def main():
     ap.add_argument("--brand", default=None)
     ap.add_argument("--no-loudnorm", dest="loudnorm", action="store_false",
                     default=True)
+    ap.add_argument("--copy-video", action="store_true",
+                    help="losslessly copy the video stream (-c:v copy) when converting .mov/.mkv to .mp4")
     ap.add_argument("--preset", default="slow",
                     help="x264 preset (slow is worth it for a final render)")
     args = ap.parse_args()
@@ -145,9 +147,11 @@ def main():
     target = theme["video"]["loudnessTarget"]
     true_peak = theme["video"]["truePeak"]
 
-    out_dir = Path(args.output)
+    out_arg = Path(args.output)
+    single_file_mode = out_arg.suffix.lower() == ".mp4"
+    out_dir = out_arg.parent if single_file_mode else out_arg
     out_dir.mkdir(parents=True, exist_ok=True)
-    name = args.name or source.stem
+    name = args.name or (out_arg.stem if single_file_mode else source.stem)
 
     audio_filter = None
     if args.loudnorm and meta["has_audio"]:
@@ -167,6 +171,30 @@ def main():
         metadata_path = out_dir / f"{name}.ffmetadata"
         metadata_path.write_text(chapter_metadata(chapters, meta["duration"]))
         print(f"🔖 {len(chapters)} chapters")
+
+    if single_file_mode:
+        cmd = ["-i", str(source)]
+        if metadata_path:
+            cmd += ["-i", str(metadata_path), "-map_metadata", "1"]
+        cmd += ["-map", "0:v:0"]
+        if meta["has_audio"]:
+            cmd += ["-map", "0:a:0"]
+        if args.copy_video:
+            cmd += ["-c:v", "copy"]
+        else:
+            cmd += ["-c:v", "libx264", "-preset", args.preset, "-crf", "20",
+                    "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p"]
+        cmd += ["-movflags", "+faststart"]
+        if meta["has_audio"]:
+            cmd += ["-c:a", "aac", "-b:a", "256k", "-ar", "48000"]
+            if audio_filter:
+                cmd += ["-af", audio_filter]
+        else:
+            cmd += ["-an"]
+        print(f"🎬 remuxing & normalising → {out_arg.name} …")
+        ffmpeg([*cmd, "-y", str(out_arg)])
+        print(f"✓ {out_arg} ({out_arg.stat().st_size // 1024}KB)")
+        return 0
 
     artifacts = []
     for height in rungs(meta["height"], args.heights):
