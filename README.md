@@ -38,7 +38,7 @@ bash scripts/bootstrap.sh
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
 | `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
-| `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD |
+| `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Chirp 3 HD and Gemini Live, or narration in your own recorded or replicated voice |
 | `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
 Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP, Reaper and

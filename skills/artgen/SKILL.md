@@ -1,6 +1,6 @@
 ---
 name: artgen
-description: Generate images, b-roll video, instrumental music and voiceover from prompts using Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD, over Vertex with an AI Studio fallback. Trigger via /artgen.
+description: Generate images, b-roll video, instrumental music and voiceover from prompts using Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Chirp 3 HD and Gemini Live (or the user's own recorded or replicated voice), over Vertex with an AI Studio fallback. Trigger via /artgen.
 disable-model-invocation: true
 ---
 
@@ -73,7 +73,10 @@ Neither is required to be present — whichever is configured is the one that ge
    Lyria returns a fixed clip of about 33 seconds. A longer `--duration` generates as many
    clips as it needs and crossfades them; the prompt holds the style steady across generations.
 
-5. **Voiceover, when there is a script but no recording:**
+5. **Voiceover.** First ask the user whose voice it should be: a synthetic voice (Gemini
+   TTS, Chirp 3 HD or Gemini Live), their own recording, or their own voice replicated to
+   read the script. Do not pick for them; a tutorial narrated in the author's voice and one
+   in a stock voice are different products.
 
    ```bash
    python3 scripts/voice.py -i script.md -o out/voice.wav --voice Charon \
@@ -90,6 +93,27 @@ Neither is required to be present — whichever is configured is the one that ge
    names, `--lang` for 40+ locales, and dialogue with any number of speakers. It takes no
    `--style`, so reach for it when the read must stay level across a long script or the locale
    is not English. Gemini TTS remains the default because only it can act.
+
+   `--engine live` reads through a Gemini Live native-audio model, the most conversational
+   delivery of the three. Each take is checked against Live's own transcript, retried once
+   when it paraphrases, and a warning names any chunk that still drifted: listen to those.
+   Vertex serves it as `gemini-live-2.5-flash-native-audio`; AI Studio as the 3.1 preview.
+
+   **The user's own voice.** If they have recorded the script (`/sound record.py`, then
+   `clean.py`), `--own-voice take.wav -o out/voice.wav` converts it to the same 24kHz mono
+   WAV with a sidecar that says it is a human recording, so nothing downstream changes.
+   If they want the script read *in* their voice without recording it:
+
+   ```bash
+   python3 scripts/voice.py --consent-statement          # the sentence they must record
+   python3 scripts/voice.py -i script.md -o out/voice.wav \
+     --clone-from me-speaking-20s.wav --consent me-consenting.wav
+   ```
+
+   That uploads both clips to the AI Studio voices API, which checks the consent clip is
+   the same speaker reciting the statement. By default nothing is kept: the voice key lives
+   in memory for this run only. `--store-voice` asks Google to keep it and prints a
+   `voice_...` id for `--voice` next time (stored voices expire after a year unused).
 
 6. **Pick a model deliberately only when you have a reason.** The chain already falls through
    a 404, a 403 and a 429 to the next model and the other backend. `--model` heads the chain
@@ -173,6 +197,14 @@ python3 ../sound/scripts/mix.py -v out/voice.wav -m out/bed.wav -o out/episode.w
 *   **NEVER** switch TTS models between chunks of one narration. The same voice name sounds
     different on each model, and the seam is audible; `voice.py` pins whichever model answered
     the first chunk to the head of the chain.
+*   **NEVER** replicate a voice that is not the user's own, even with a consent clip in hand.
+    The API checks that the consent recording matches the sample; it cannot check that the
+    person consenting is the person running the command. A clone of a colleague, a public
+    figure or a fixture recording is impersonation, so `--clone-from` takes only audio the
+    user says they recorded of themselves.
+*   **NEVER** write a `voicekey_...` to the plan, a sidecar, a log or the terminal. The key is
+    the voice: anyone holding it and an API key can speak as the user. `voice.py` keeps it
+    in memory and records `(replicated)` in its place.
 *   **NEVER** treat a `--count` of images as free. Each one is a generation plus a verification
     call; a loop over eight section headers with the default settings is up to 48 model calls.
 *   **NEVER** use `/artgen` where `/vector` or `/render3d` would do. A diagram that has to be

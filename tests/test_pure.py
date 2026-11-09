@@ -275,6 +275,63 @@ class VoiceTest(unittest.TestCase):
         plan = voice.build_plan(script, Args(engine="gemini", voice=voice.SECOND_VOICE))
         self.assertEqual(plan["speakers"], {"A": voice.SECOND_VOICE, "B": voice.DEFAULT_VOICE})
 
+    def test_live_match_scores_paraphrase_low(self):
+        said = "Welcome to the build pipeline tour."
+        self.assertEqual(voice.match(said, "welcome to the build pipeline tour"), 1.0)
+        self.assertLess(voice.match(said, "Sure! Let me show you around the pipeline."),
+                        voice.LIVE_MIN_MATCH)
+
+    def test_cloned_plan_never_carries_a_voice_key(self):
+        plan = voice.build_plan("One.\n\nTwo.", Args(engine="gemini", clone_from="me.wav"))
+        self.assertTrue(plan["replicated"])
+        self.assertEqual(plan["voice"], voice.CLONED)
+        self.assertNotIn("voicekey", json.dumps(plan))
+
+    def test_cloning_refuses_a_dialogue(self):
+        with self.assertRaises(SystemExit):
+            voice.build_plan("A: hi\nB: hello", Args(engine="gemini", clone_from="me.wav"))
+
+    def test_live_take_reads_every_part_until_turn_complete(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        def part(data=None):
+            return NS(inline_data=NS(data=data, mime_type="audio/pcm;rate=24000") if data else None)
+
+        events = [
+            NS(server_content=None),
+            NS(server_content=NS(model_turn=NS(parts=[part(b"\x01\x00"), part(b"\x02\x00")]),
+                                 output_transcription=NS(text="Hello "), turn_complete=False)),
+            NS(server_content=NS(model_turn=None, output_transcription=NS(text="there"),
+                                 turn_complete=True)),
+            NS(server_content=NS(model_turn=NS(parts=[part(b"\xff\xff")]),
+                                 output_transcription=None, turn_complete=False)),
+        ]
+        sent = []
+
+        class Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def send_client_content(self, **kw):
+                sent.append(kw)
+
+            async def receive(self):
+                for event in events:
+                    yield event
+
+        client = NS(aio=NS(live=NS(connect=lambda model, config: Session())))
+        types = NS(**{n: (lambda **kw: NS(**kw)) for n in (
+            "LiveConnectConfig", "SpeechConfig", "VoiceConfig", "PrebuiltVoiceConfig",
+            "AudioTranscriptionConfig", "Content", "Part")})
+        pcm, rate, heard = asyncio.run(
+            voice.live_take(client, types, "m", "Hello there", "Puck", ""))
+        self.assertEqual((pcm, rate, heard), (b"\x01\x00\x02\x00", 24000, "Hello there"))
+        self.assertTrue(sent[0]["turn_complete"])
+
 
 class SegmentTest(unittest.TestCase):
     def test_box_px_and_valid_box(self):

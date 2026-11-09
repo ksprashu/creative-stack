@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate voiceover narration from text with Gemini TTS or Chirp 3 HD.
+"""Generate voiceover narration from text with Gemini TTS, Chirp 3 HD or Gemini Live.
 
     python3 voice.py -t "Welcome to the build pipeline tour." -o out/voice.wav
     python3 voice.py -i script.md -o out/voice.wav --voice Charon --style "calm, unhurried"
@@ -21,6 +21,9 @@
     python3 voice.py -i script.md -o out/voice.wav --plan-only   # edit, then:
     python3 voice.py --from-plan out/voice.plan.json -o out/voice.wav
     python3 voice.py -i script.md -o out/voice.wav --engine chirp --lang en-GB
+    python3 voice.py -i script.md -o out/voice.wav --engine live --voice Puck
+    python3 voice.py --own-voice take.m4a -o out/voice.wav
+    python3 voice.py -i script.md -o out/voice.wav --clone-from me.wav --consent consent.wav
 
 A script is split into paragraph-sized chunks, each chunk is one TTS call, and
 the results are joined with a short silence. The chunk list is written to
@@ -37,16 +40,35 @@ voice names, no style prompt, but steady across long reads, 40+ locales via
 `--lang`, and no speaker limit (each turn is its own request). Vertex project
 and ADC only — there is no AI Studio path.
 
+`--engine live` reads the script through a Gemini Live native-audio model:
+the most conversational delivery of the three, but it is a dialogue model
+being asked to read, so every take is checked against the model's own
+transcript and retried once when it paraphrases.
+
+Two routes put the user's own voice on the track instead. `--own-voice`
+takes a recording they made (see `/sound record.py`) and converts it to the
+same 24kHz mono WAV, so nothing downstream can tell the difference.
+`--clone-from` with `--consent` replicates their voice through the AI Studio
+voices API and reads the script with it; the consent clip must recite the
+statement `--consent-statement` prints. The returned voice key is used in
+memory and never written to disk unless `--store-voice` asks Google to keep a
+reusable `voice_...` id instead.
+
 Output is 24kHz mono WAV at whatever level the model produced. It is not
 mastered: run it through `/sound clean.py` and `mix.py`, which own loudness.
 """
 
 import argparse
+import asyncio
+import base64
+import difflib
 import io
 import json
 import re
 import subprocess
 import sys
+import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -88,7 +110,29 @@ SECOND_VOICE = "Kore"
 # Bytes, not characters: Devanagari is three bytes a character in UTF-8.
 MAX_BYTES = 1500
 RATE = 24000
-TURN_GAP = 0.25  # Chirp dialogue: silence between turns inside one chunk
+TURN_GAP = 0.25  # Chirp and Live dialogue: silence between turns in one chunk
+
+# Live models are dialogue models. 3.1 is the March 2026 preview; the 2.5
+# native-audio preview is the fallback where 3.1 is not served yet. Both are
+# AI Studio names: Vertex serves neither and has its own `gemini-live-…`.
+LIVE_SEQUENCE = [
+    "gemini-3.1-flash-live-preview",
+    "gemini-2.5-flash-native-audio-preview-12-2025",
+    "gemini-live-2.5-flash-native-audio",
+]
+# Word-level similarity between the script and what the Live model says it
+# said. Below this the take is a paraphrase or a reply, not a reading.
+LIVE_MIN_MATCH = 0.9
+
+# Replicated voices are created against one model and only that model can
+# speak them, so a replicated read has no fallback chain.
+REPLICATION_MODEL = "gemini-3.8-flash-tts"
+CLONE_SECONDS = (10.0, 30.0)
+CLONED = "(replicated)"  # what the plan records in place of the voice key
+CONSENT = ("I am the owner of this voice and I consent to Google using this "
+           "voice to create a synthetic voice model.")
+CONSENT_DOCS = ("https://ai.google.dev/gemini-api/docs/voice-replication"
+                "#consent-phrases-by-language")
 SPEAKER_LINE = re.compile(r"^\s*([A-Z][\w .'-]{0,30}?)\s*:\s+(\S.*)$")
 
 
@@ -165,6 +209,11 @@ def build_plan(text, args):
             "model": args.model}
     if args.engine == "chirp":
         plan["lang"] = args.lang
+    if args.clone_from:
+        if turns:
+            G.die("--clone-from reads narration in one voice; a dialogue needs "
+                  "--narration or a second, prebuilt voice per speaker")
+        plan["replicated"] = True
     if turns:
         speakers = list(dict.fromkeys(s for s, _ in turns))
         if len(speakers) > 2 and args.engine == "chirp":
@@ -182,7 +231,7 @@ def build_plan(text, args):
         plan["speakers"] = dict(zip(speakers, (v.strip() for v in voices)))
         plan["chunks"] = chunk_dialogue(turns)
     else:
-        plan["voice"] = args.voice or DEFAULT_VOICE
+        plan["voice"] = CLONED if args.clone_from else (args.voice or DEFAULT_VOICE)
         plan["chunks"] = chunk_narration(text)
     if not plan["chunks"]:
         G.die("nothing to say — the script is empty after stripping markdown")
@@ -285,6 +334,11 @@ def synthesise(plan, args):
         G.warn("google-genai is too old for the Gemini 3.8 TTS request shape — "
                "skipping 3.8. Upgrade: uv pip install -U google-genai")
     chain = tts_chain(args.model or plan.get("model"), new_shape)
+    if plan.get("replicated"):
+        if not new_shape:
+            G.die("a replicated voice needs the Gemini 3.8 request shape: "
+                  "uv pip install -U google-genai")
+        chain = [REPLICATION_MODEL]
 
     def call_for(chunk):
         def call(client, model):
@@ -307,7 +361,8 @@ def synthesise(plan, args):
         # Retries and the other backend still apply; a different model does not.
         if used:
             chain = [used[0]]
-        take, model, backend = G.attempt(chain, call_for(chunk), args.backend,
+        backend = "aistudio" if plan.get("replicated") else args.backend
+        take, model, backend = G.attempt(chain, call_for(chunk), backend,
                                          quiet=index > 0)
         used = (model, backend)
         takes.append(take)
@@ -331,9 +386,7 @@ def write(takes, gap, out):
         wav.setframerate(rate)
         wav.writeframes(pcm)
     if wav_path != out:
-        ffmpeg = G.hostenv.ffmpeg_bin("ffmpeg") or G.die(
-            "ffmpeg not found. " + G.hostenv.ffmpeg_install_hint())
-        subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+        subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
                         "-y", "-i", str(wav_path), str(out)], check=True)
         wav_path.unlink()
     return len(pcm) / 2 / rate
@@ -384,6 +437,194 @@ def synthesise_chirp(plan):
     return takes, ("chirp3-hd", "texttospeech")
 
 
+# -------------------------------------------------------------------- live ---
+
+def words(text):
+    return re.findall(r"[\w']+", text.lower())
+
+
+def match(said, heard):
+    """0..1 — how closely the Live transcript follows the script, word for word."""
+    return difflib.SequenceMatcher(None, words(said), words(heard)).ratio()
+
+
+def live_instruction(style):
+    note = ("You are a voiceover artist. Read the user's text aloud exactly as "
+            "written, word for word, and nothing else. Do not answer it, comment "
+            "on it, greet anyone or add words of your own.")
+    return note + (f" Delivery: {style}." if style else "")
+
+
+async def live_take(client, types, model, text, voice, style):
+    """(pcm, rate, transcript) for one reading over a Live session."""
+    config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))),
+        system_instruction=live_instruction(style),
+        output_audio_transcription=types.AudioTranscriptionConfig())
+    pcm, rate, heard = bytearray(), RATE, []
+    async with client.aio.live.connect(model=model, config=config) as session:
+        await session.send_client_content(
+            turns=types.Content(role="user", parts=[types.Part(text=text)]),
+            turn_complete=True)
+        async for message in session.receive():
+            content = message.server_content
+            if not content:
+                continue
+            # One event can carry audio and transcript together on 3.1, so
+            # every part of every event is read, not just the first.
+            for part in (content.model_turn.parts if content.model_turn else None) or []:
+                if part.inline_data and part.inline_data.data:
+                    chunk, rate = to_pcm(part.inline_data.data, part.inline_data.mime_type)
+                    pcm += chunk
+            if content.output_transcription and content.output_transcription.text:
+                heard.append(content.output_transcription.text)
+            if content.turn_complete:
+                break
+    return bytes(pcm), rate, "".join(heard)
+
+
+def synthesise_live(plan, args):
+    """[(pcm, rate)] per chunk from a Gemini Live model, one session per read.
+
+    Like Chirp, a dialogue is one read per turn joined with TURN_GAP. Each read
+    is checked against its transcript; a paraphrase gets one more take, and the
+    closer of the two is kept with a warning.
+    """
+    _, types = G.load_genai()
+    style = plan.get("style", "")
+
+    def read_for(text, voice):
+        def call(client, model):
+            best = None
+            for _ in range(2):
+                pcm, rate, heard = asyncio.run(
+                    live_take(client, types, model, text, voice, style))
+                if not pcm:
+                    return None
+                score = match(text, heard) if heard else 1.0
+                if best is None or score > best[2]:
+                    best = (pcm, rate, score)
+                if score >= LIVE_MIN_MATCH:
+                    break
+            if best[2] < LIVE_MIN_MATCH:
+                G.warn(f"Live read drifted from the script ({best[2]:.0%} word "
+                       f"match): \"{text[:60]}…\" — listen, or use --engine gemini")
+            return best[0], best[1]
+        return call
+
+    chain = G.chain_for(args.model, LIVE_SEQUENCE) if args.model else list(LIVE_SEQUENCE)
+    takes, used = [], None
+    for index, chunk in enumerate(plan["chunks"]):
+        reads = ([(t["text"], plan["speakers"][t["speaker"]]) for t in chunk["turns"]]
+                 if "turns" in chunk else [(chunk["text"], plan["voice"])])
+        pieces = []
+        for text, voice in reads:
+            # Same rule as TTS: once a model answers, it reads everything.
+            take, model, backend = G.attempt([used[0]] if used else chain,
+                                             read_for(text, voice), args.backend,
+                                             quiet=used is not None)
+            used = (model, backend)
+            pieces.append(take)
+        rate = pieces[0][1]
+        silence = b"\x00\x00" * int(rate * TURN_GAP)
+        takes.append((silence.join(p for p, _ in pieces), rate))
+        print(f"  {G.DIM}chunk {index + 1}/{len(plan['chunks'])}: "
+              f"{len(takes[-1][0]) / 2 / rate:.1f}s  ({used[1]}/{used[0]}){G.RESET}")
+    return takes, used
+
+
+# ------------------------------------------------------------- own voice ---
+
+def ffmpeg():
+    return G.hostenv.ffmpeg_bin("ffmpeg") or G.die(
+        "ffmpeg not found. " + G.hostenv.ffmpeg_install_hint())
+
+
+def to_wav(src, dest):
+    """Any recording ffmpeg can read, as 24kHz mono 16-bit WAV."""
+    subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
+                    "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", str(RATE),
+                    "-c:a", "pcm_s16le", str(dest)], check=True)
+    return dest
+
+
+def seconds_of(wav_path):
+    with wave.open(str(wav_path)) as wav:
+        return wav.getnframes() / wav.getframerate()
+
+
+def use_own_voice(src, out):
+    """The user's own recording, in the format a synthetic read would have."""
+    src = Path(src).expanduser()
+    if not src.is_file():
+        G.die(f"no recording at {src}")
+    if out.suffix.lower() == ".wav":
+        to_wav(src, out)
+        seconds = seconds_of(out)
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            seconds = seconds_of(to_wav(src, Path(tmp) / "own.wav"))
+        subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
+                        "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", str(RATE),
+                        str(out)], check=True)
+    # Not G.provenance: that sidecar says "generated-by", and this was not.
+    Path(str(out) + ".txt").write_text(
+        f"recorded-by: human (own voice, not synthesised)\n"
+        f"source: {src.name}\n"
+        f"converted-at: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
+    return seconds
+
+
+# ----------------------------------------------------------------- cloning ---
+
+def clone_inputs(sample, consent, workdir):
+    """(sample_b64, consent_b64) as 24kHz mono WAV, after checking the sample length."""
+    paths = []
+    for flag, src in (("--clone-from", sample), ("--consent", consent)):
+        src = Path(src).expanduser()
+        if not src.is_file():
+            G.die(f"{flag}: no recording at {src}")
+        paths.append(to_wav(src, Path(workdir) / f"{flag.strip('-')}.wav"))
+    length = seconds_of(paths[0])
+    low, high = CLONE_SECONDS
+    if not low <= length <= high:
+        G.die(f"--clone-from is {length:.1f}s; voice replication wants "
+              f"{low:.0f}-{high:.0f}s of clean, natural speech")
+    return [base64.b64encode(p.read_bytes()).decode() for p in paths]
+
+
+def replicate(sample, consent, store):
+    """A voice id (`voice_...`, stored) or key (`voicekey_...`, not) for the plan.
+
+    The key is the voice: anyone holding it with an API key can speak in it.
+    It lives in this process only, never in the plan, sidecar or terminal.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        sample_b64, consent_b64 = clone_inputs(sample, consent, tmp)
+    client = G.backends("aistudio")[0].client(REPLICATION_MODEL)
+    if not hasattr(client, "voices"):
+        G.die("voice replication needs google-genai >= 2.25: "
+              "uv pip install -U google-genai")
+    voice = {"model": REPLICATION_MODEL, "type": "replicated",
+             "replicated": {
+                 "source_audio": {"mime_type": "audio/wav", "data": sample_b64},
+                 "consent_audio": {"mime_type": "audio/wav", "data": consent_b64}}}
+    if store:
+        voice["display_name"] = "creative-stack narration"
+    try:
+        made = client.voices.create(store=store, voice=voice)
+    except Exception as exc:  # noqa: BLE001 - every API refusal ends the same way
+        G.die(f"voice replication refused: {str(exc).splitlines()[0][:200]}\n"
+              f"  The consent clip must be the same speaker reciting: \"{CONSENT}\"")
+    if store:
+        print(f"  {G.DIM}stored voice: {made.id} — reuse with --voice {made.id}; "
+              f"delete with client.voices.delete(id=...){G.RESET}")
+        return made.id
+    return made.key
+
+
 # -------------------------------------------------------------------- main ---
 
 def main():
@@ -393,6 +634,8 @@ def main():
     src.add_argument("--text", "-t", help="the words to speak")
     src.add_argument("--input", "-i", help="a .txt or .md script")
     src.add_argument("--from-plan", help="render an existing (edited) .plan.json")
+    src.add_argument("--own-voice", metavar="RECORDING",
+                     help="use your own recording as the narration (no synthesis)")
     ap.add_argument("--output", "-o", help=".wav (native) or anything ffmpeg writes")
     ap.add_argument("--voice", help=f"prebuilt voice (default {DEFAULT_VOICE}) "
                                     "or a designed voice_... id")
@@ -402,8 +645,18 @@ def main():
     ap.add_argument("--style", help='delivery, e.g. "warm, unhurried, smiling"')
     ap.add_argument("--gap", type=float, default=0.6,
                     help="seconds of silence between chunks (default 0.6)")
-    ap.add_argument("--engine", default="gemini", choices=["gemini", "chirp"],
-                    help="gemini (styleable, default) or chirp (Chirp 3 HD)")
+    ap.add_argument("--engine", default="gemini", choices=["gemini", "chirp", "live"],
+                    help="gemini (styleable, default), chirp (Chirp 3 HD) or "
+                         "live (Gemini Live native audio)")
+    ap.add_argument("--clone-from", metavar="SAMPLE",
+                    help="10-30s of your own speech; reads the script in your voice")
+    ap.add_argument("--consent", metavar="RECORDING",
+                    help="you reciting the --consent-statement (needed by --clone-from)")
+    ap.add_argument("--store-voice", action="store_true",
+                    help="have Google keep the replicated voice and print a "
+                         "reusable voice_... id (default: use once, keep nothing)")
+    ap.add_argument("--consent-statement", action="store_true",
+                    help="print the sentence the --consent recording must say")
     ap.add_argument("--lang", default="en-US",
                     help="Chirp locale, e.g. en-GB, hi-IN (default en-US)")
     ap.add_argument("--model", help="head the model chain with this model")
@@ -418,28 +671,58 @@ def main():
         for name, character in VOICES.items():
             print(f"  {name:<15} {character}")
         return 0
+    if args.consent_statement:
+        print(f"  {CONSENT}\n  {G.DIM}other languages: {CONSENT_DOCS}{G.RESET}")
+        return 0
     if not args.output:
         ap.error("--output is required")
+    if args.clone_from and not args.consent:
+        ap.error("--clone-from needs --consent: a recording of the same speaker "
+                 "saying the --consent-statement")
+    if args.clone_from and args.engine != "gemini":
+        ap.error("--clone-from speaks through Gemini TTS; drop --engine")
     out = G.prepare(args.output)
     plan_path = out.with_suffix(".plan.json")
 
+    if args.own_voice:
+        seconds = use_own_voice(args.own_voice, out)
+        G.report(out, f"{seconds:.1f}s, your own recording")
+        print(f"  {G.DIM}not mastered — run /sound clean.py, then mix.py "
+              f"under any music{G.RESET}")
+        return 0
+
     if args.from_plan:
         plan = json.loads(Path(args.from_plan).read_text())
+        if args.clone_from:
+            # A plan made for a stock voice, re-read in the user's own.
+            if plan.get("speakers"):
+                G.die("--clone-from reads narration in one voice; this plan is a dialogue")
+            plan.update(engine="gemini", replicated=True, voice=CLONED)
     elif args.text or args.input:
         text = args.text or Path(args.input).expanduser().read_text()
         plan = build_plan(text, args)
         plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
         print(f"  {G.DIM}plan: {plan_path}  ({len(plan['chunks'])} chunk(s)){G.RESET}")
     else:
-        ap.error("one of --text, --input or --from-plan is required")
+        ap.error("one of --text, --input, --from-plan or --own-voice is required")
     if args.plan_only:
         return 0
+    if plan.get("replicated") and plan.get("voice") == CLONED and not args.clone_from:
+        G.die("this plan was made for a replicated voice — pass --clone-from and "
+              "--consent again, or set \"voice\" to a stored voice_... id")
 
     who = (", ".join(f"{s}={v}" for s, v in plan["speakers"].items())
            if plan.get("speakers") else plan["voice"])
     print(f"◈ {len(plan['chunks'])} chunk(s) → {out.name}  {G.DIM}({who}){G.RESET}")
-    if plan.get("engine") == "chirp":
+    if plan.get("replicated") and plan.get("voice") == CLONED:
+        # The key goes into a copy that is never serialised; `who` above and
+        # the sidecar below still name it CLONED.
+        key = replicate(args.clone_from, args.consent, args.store_voice)
+        takes, (model, backend) = synthesise({**plan, "voice": key}, args)
+    elif plan.get("engine") == "chirp":
         takes, (model, backend) = synthesise_chirp(plan)
+    elif plan.get("engine") == "live":
+        takes, (model, backend) = synthesise_live(plan, args)
     else:
         takes, (model, backend) = synthesise(plan, args)
     seconds = write(takes, plan.get("gap", args.gap), out)
