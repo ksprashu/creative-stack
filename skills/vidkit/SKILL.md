@@ -56,10 +56,20 @@ in the frame, and the motion detector will happily push in on them.
    `out/cut.chapters.txt` — the chapters moved onto the cut timeline — for steps 5 and 6.
    Over 20MB of proxy on Vertex needs `--gcs-uri gs://…`; AI Studio uploads it itself.
 
+   **Then redact.** A terminal or console recording shows tokens, project ids and emails for
+   seconds at a time. `vidscan.py` OCRs a frame a second with `/shot`'s scan rules and blurs
+   each hit for as long as it is on screen (padded by a sample either side). Review the
+   tracks, delete false positives, then render — before zoom, so the blur rides the zoom:
+   ```bash
+   python3 scripts/vidscan.py -i out/cut.mp4 --json out/scan.json            # review
+   python3 scripts/vidscan.py -i out/cut.mp4 --from-json out/scan.json --render out/redacted.mp4
+   ```
+   Carry on from `out/redacted.mp4`. Fast scrolling? Raise `--fps`.
+
 3. **Push in on the action** — optional, but it is what makes a 4K capture legible at blog width:
    ```bash
-   python3 scripts/zoom.py -i out/cut.mp4 --auto --spec-out out/zoom.yaml   # review
-   python3 scripts/zoom.py -i out/cut.mp4 --spec out/zoom.yaml -o out/zoomed.mp4
+   python3 scripts/zoom.py -i out/redacted.mp4 --auto --spec-out out/zoom.yaml   # review
+   python3 scripts/zoom.py -i out/redacted.mp4 --spec out/zoom.yaml -o out/zoomed.mp4
    ```
 
 4. **Caption**, styled from `brand/tokens.json`:
@@ -90,8 +100,9 @@ in the frame, and the motion detector will happily push in on them.
    `.mov --alpha` is ProRes 4444 for an NLE, `.webm --alpha` is VP9 with alpha for the web.
    A new template is any HTML file there that links `motion.css` and `motion.js`.
 
-5. **Publish** — loudness, chapters, ladder, poster:
+5. **Publish** — check nothing readable is left, then loudness, chapters, ladder, poster:
    ```bash
+   python3 scripts/vidscan.py -i out/captioned.mp4 --check --fps 2
    python3 scripts/publish.py -i out/captioned.mp4 -o out/publish --chapters chapters.txt
    ```
 
@@ -116,12 +127,14 @@ python3 scripts/autocut.py -i ~/Movies/cloudrun.mov -o out/cut.json \
   --render out/cut.mp4 --srt out/talk.srt --srt-out out/cut.srt
 
 # 3. follow the cursor through the console
-python3 scripts/zoom.py -i out/cut.mp4 --auto -o out/zoomed.mp4 --zoom 1.5
+python3 scripts/vidscan.py -i out/cut.mp4 --json out/scan.json         # review the tracks
+python3 scripts/vidscan.py -i out/cut.mp4 --from-json out/scan.json --render out/redacted.mp4
+python3 scripts/zoom.py -i out/redacted.mp4 --auto -o out/zoomed.mp4 --zoom 1.5
 
 # 4. captions that match the slides and the blog
 python3 scripts/captions.py -i out/zoomed.mp4 -s out/cut.srt -o out/captioned.mp4 --style pill
 
-# 5. chapters, from the markers autocut found at the long pauses
+# 5. nothing readable left? then chapters, from the markers autocut found at the long pauses
 cat > out/chapters.txt <<'EOF'
 0:00 What we're building
 1:12 Deploying from source
@@ -129,6 +142,7 @@ cat > out/chapters.txt <<'EOF'
 11:05 Rollbacks and traffic splitting
 EOF
 
+python3 scripts/vidscan.py -i out/captioned.mp4 --check --fps 2
 python3 scripts/publish.py -i out/captioned.mp4 -o out/publish \
   --name cloudrun-walkthrough --chapters out/chapters.txt --thumb-at 74
 ```
@@ -156,6 +170,9 @@ python3 ../shot/scripts/frame.py -i out/publish/cloudrun-walkthrough-poster.png 
     `CREATIVE_STACK_FFMPEG` is the only supported override.
 *   **NEVER** name a `timeline.py` output `.fcpxml`. OpenTimelineIO writes FCP7 XMEML; Resolve
     picks its parser from the extension and rejects the mismatch. Use `.xml`.
+*   **NEVER** publish a terminal or console recording without `vidscan.py --check` on the
+    final file. It only sees what OCR can read, so also watch the parts it cannot — a QR
+    code, a face, an account picker.
 *   **NEVER** publish without the loudness pass. A video that lands at −20 LUFS next to one at
     −14 reads as an audio fault, not a stylistic choice.
 *   **NEVER** pass `analysis.chapters.txt` to `timeline.py` or `publish.py` after a cut. Gemini

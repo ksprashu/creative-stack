@@ -25,7 +25,7 @@ bash scripts/bootstrap.sh
 | Skill | What it does |
 | --- | --- |
 | `/shot` | Screenshots worth publishing: device frames, gradient backdrops, numbered callouts, automatic secret redaction, code and terminal images |
-| `/vidkit` | Recording → published video: transcribe, Gemini-proposed cuts and chapters, cut silence, auto-zoom, karaoke captions, motion-graphics titles and lower thirds, loudness, encode ladder, NLE handoff |
+| `/vidkit` | Recording → published video: transcribe, Gemini-proposed cuts and chapters, cut silence, secret blurring, auto-zoom, karaoke captions, motion-graphics titles and lower thirds, loudness, encode ladder, NLE handoff |
 | `/deck` | Outline → brand-themed slides → HTML / PDF / editable PPTX / per-slide PNG |
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
@@ -209,6 +209,7 @@ for generation, free software everywhere else.
 *   **`/shot` redacts before it publishes.** Screenshots of a terminal or a cloud console are the
     most common way a token gets into a blog post. `scan.py` finds keys, labelled values,
     emails and project ids by OCR and writes the blurs; `scan.py --check` gates the final image.
+    `/vidkit vidscan.py` does the same for recordings, blurring each hit for as long as it shows.
 
 ---
 
