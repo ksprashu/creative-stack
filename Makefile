@@ -89,6 +89,7 @@ demo: demo-clean  ## end-to-end smoke test — six artefacts in out/
 	@echo ""
 	@echo "▸ 2/6  screenshot → numbered callouts and a redaction (anot8)"
 	$(ANOT8) render fixtures/steps.anot8.json -o $(OUT)/demo/annotated.png
+	$(PY) skills/shot/scripts/scan.py -i $(OUT)/demo/annotated.png --check
 	@echo ""
 	@echo "▸ 3/6  recording → silence cut"
 	$(PY) skills/vidkit/scripts/autocut.py -i fixtures/rec.mp4 -o $(OUT)/demo/cut.json \

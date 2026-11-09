@@ -41,6 +41,7 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    jq '.profiles[.default].color | {brand: .light.accent, warn: .brand.red,
        ok: .brand.green, note: .brand.yellow}' brand/tokens.json > out/palette.json
    anot8 init out/raw.png -o out/raw.anot8.json --palette out/palette.json   # natural size filled in
+   python3 scripts/scan.py -i out/raw.png --spec out/raw.anot8.json          # blurs for secrets, first
    anot8 render out/raw.anot8.json -o out/annotated.png --md out/notes.md
    # look at out/annotated.png and the printed bounds, then nudge and re-render:
    anot8 apply out/raw.anot8.json --in-place --ops '[{"op":"update","id":"deploy","set":{"y":312}}]'
@@ -49,7 +50,14 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    `highlight` change the pixels and draw no border, so a redaction reads as part of the
    image, not as a callout.
 
-   Not sure where a secret is? `/raster`'s `segment.py -i out/raw.png --query "the API key" --json hits.json`
+   `scan.py` OCRs the screenshot and adds a `blur` (id `scan-N`, note `scan: <kind>`) for every
+   known key format, labelled value (`password:`, `GITHUB_TOKEN=`), email, GCP project id, card
+   number and long random string, leaving the label itself readable. Its report shows only the
+   first four characters of each hit. `--ai` adds a Gemini pass for what OCR can't read: faces,
+   avatars, names, account pickers. Review the `scan-*` blurs in the render: delete a false
+   positive from the spec, and blur anything it missed by hand.
+
+   Still a secret it can't find? `/raster`'s `segment.py -i out/raw.png --query "the API key" --json hits.json`
    finds it by description; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
    at `x: xmin/10 %`, `y: ymin/10 %`, `w: (xmax - xmin)/10 %`, `h: (ymax - ymin)/10 %` covers it.
 
@@ -62,9 +70,10 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
      --chrome browser --url "https://console.cloud.google.com" --backdrop subtle
    ```
 
-4. **Optimize before publishing**:
+4. **Check, then optimize before publishing** — `--check` writes nothing and exits 1 if anything
+   is still readable:
    ```bash
-   oxipng -o 4 --strip safe out/final.png
+   python3 scripts/scan.py -i out/final.png --check && oxipng -o 4 --strip safe out/final.png
    ```
 
 ---
@@ -97,10 +106,12 @@ notes list.
 ```bash
 python3 scripts/capture.py --url https://console.cloud.google.com --output out/raw.png
 anot8 init out/raw.png -o out/raw.anot8.json --palette out/palette.json
-# add the annotations above, then:
+python3 scripts/scan.py -i out/raw.png --spec out/raw.anot8.json
+# add the callouts above, then:
 anot8 render out/raw.anot8.json -o out/annotated.png --md out/notes.md
 python3 scripts/frame.py  -i out/annotated.png -o out/final.png --chrome browser \
   --url "console.cloud.google.com" --caption "Deploying a service from the console"
+python3 scripts/scan.py -i out/final.png --check
 oxipng -o 4 --strip safe out/final.png
 ```
 
@@ -129,7 +140,9 @@ vhs demo.tape
 ## 🚫 Hard Constraints
 
 *   **NEVER** publish a screenshot without checking for secrets first — project IDs, emails,
-    tokens, account pickers. Apply a `blur` annotation, do not crop and hope.
+    tokens, account pickers. Run `scan.py` (add `--ai` when faces or account pickers are
+    in shot), look at the render, then `scan.py --check` the final image. A clean scan is
+    not proof: OCR misses text it can't read, so look too. Blur, do not crop and hope.
 *   **NEVER** use a solid box over text you intend to stay unreadable *and* look natural — use
     `blur`; use `"fillOpacity": 1` only when total removal is the point.
 *   **NEVER** ship an anot8 render without opening the PNG it wrote. The returned `bounds`
