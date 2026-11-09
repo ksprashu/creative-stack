@@ -2,6 +2,11 @@
 
 A complete reference and practitioner handbook for the **Creative Stack**: eight portable media-production skills, 47 CLI tools, five headless GUI application bridges, three opt-in MCP servers, and a single brand token source (`brand/tokens.json`) across macOS, Arch Linux, and Debian/Ubuntu.
 
+> **Personal project. Not an official Google product.** Google doesn't support Creative Stack,
+> and it isn't affiliated with or endorsed by Google. It is provided as is under Apache-2.0. Commands
+> that call Gemini or Vertex AI use your own credentials and are billed to your own account. See the
+> README's [Disclaimer](../README.md#disclaimer) and [what leaves the machine](../README.md#security).
+
 ---
 
 ## Table of Contents

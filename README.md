@@ -9,6 +9,13 @@ Runs on **macOS**, **Arch** (including Omarchy) and **Debian/Ubuntu**, from a cl
 one command — and the skills install into **Claude Code, Codex, Gemini CLI, Antigravity
 and Cursor**, whichever of them the machine has.
 
+> [!IMPORTANT]
+> **A personal project. Not an official Google product.** Creative Stack is built and maintained
+> by Prashanth Subrahmanyam in a personal capacity. Google doesn't support it, and no Google
+> support, warranty or SLA covers it. The opinions and tool choices here are the author's own and
+> do not represent any employer. It is provided as is under Apache-2.0. See
+> [Disclaimer](#disclaimer).
+
 ```bash
 git clone https://github.com/ksprashu/creative-stack.git ~/code/github/creative-stack
 cd ~/code/github/creative-stack
@@ -210,7 +217,37 @@ for generation, free software everywhere else.
     most common way a token gets into a blog post. `scan.py` finds keys, labelled values,
     emails and project ids by OCR and writes the blurs; `scan.py --check` gates the final image.
 
+*   **Privacy: what leaves the machine.** Editing, OCR, transcription, background removal,
+    captions and rendering run locally. A few commands send data to Google's Gemini / Vertex AI
+    APIs, and they do so only when you run them, using your own credentials and project:
+
+    | Command | What is sent |
+    | --- | --- |
+    | `/artgen` (`image.py`, `video.py`, `music.py`, `voice.py`) | your prompt, plus any reference images or text you pass |
+    | `/raster segment.py --query` | the image, downscaled to 1536 px (one frame, for video) |
+    | `/raster segment.py --op inpaint --inpaint gemini` | the image with the selected region painted out |
+    | `/shot scan.py --ai` | the screenshot, unredacted (it goes through `segment.py`) |
+    | `/vidkit analyze.py` | a 640 px proxy of the recording, deleted from the Files API afterwards |
+
+    Don't send a screenshot that shows a live secret to a model. Revoke the secret, or use local
+    `scan.py` (without `--ai`) and blur it first.
+
 ---
+
+## Disclaimer
+
+This is a personal project. It is **not an official Google product** and Google doesn't support
+it. It isn't affiliated with, endorsed by or maintained by Google, and Google support, warranties
+and SLAs don't apply. Everything here is the author's personal work and opinion, and does not
+represent any employer.
+
+Gemini, Vertex AI, Veo, Lyria, Google Cloud, Cloud Run and other product names belong to their
+owners. They appear here only to describe the services the scripts call. Commands that call those
+services use your own account and credentials, and you are billed for that use under the
+provider's terms. Generated media is subject to the provider's usage policies.
+
+The software is provided "as is", without warranty of any kind. See [LICENSE](LICENSE).
+Review what an agent is about to run, and what a command uploads, before you run it.
 
 ## Layout
 
@@ -227,4 +264,4 @@ out/              everything generated. gitignored.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE). Security reports: see [SECURITY.md](SECURITY.md).
