@@ -143,10 +143,13 @@ def load_word_times(path):
             if text.startswith(("[_", "<|")) or t is None or t < 0 or not text.strip():
                 continue
             t /= 100
-            if text.startswith(" ") or not words:
+            spoken = re.search(r"\w", text)
+            if spoken and (text.startswith(" ") or not words):
                 words.append([prev, t, text.strip()])
-            else:
-                if re.search(r"\w", text):
+            elif words:
+                # " -" or " ..." is punctuation even with a space: it rides on
+                # the word before, and only a spoken token moves its end.
+                if spoken:
                     words[-1][1] = t
                 words[-1][2] += text
             prev = t
@@ -168,16 +171,21 @@ def speech_islands(silences, duration):
     return [(s, e) for s, e in islands if e - s > 0.01]
 
 
-def filler_cuts(words, islands, fillers, guard=0.03):
-    """Spans to cut for fillers: (cuts, fillers left in).
+def filler_cuts(words, islands, segments, fillers, guard=0.03):
+    """Spans to cut for fillers: (cuts, fillers left in, indexes of cut words).
 
     Word timings are close but not exact, so the cut follows the audio: each
     word goes to the island it overlaps most, and an island is cut only if
     every word in it is a filler. An "um" run into real words with no pause
-    is left in — cutting it would take speech with it. A cut runs to just
-    before the next island, so the pause after the filler goes too.
+    is left in — cutting it would take speech with it. A phrase ("you know")
+    is cut whole or not at all, even when a pause splits it across islands.
 
-    A filler can be a phrase ("you know"), matched that many words in a row.
+    A cut runs to just before the next island, so the pause after the filler
+    goes too — but never past the kept segment (from `keep_segments`) it sits
+    in: the silence beyond is already gone, and the next segment's padding is
+    speech's breathing room. A filler that opens or closes its segment takes
+    that end's padding with it, or it would play as a clip of air.
+
     Words compare without case or punctuation, so "Um," is "um".
     """
     def norm(text):
@@ -186,12 +194,14 @@ def filler_cuts(words, islands, fillers, guard=0.03):
     phrases = sorted({tuple(norm(w) for w in f.split()) for f in fillers if f.strip()},
                      key=len, reverse=True)
     said = [norm(w[2]) for w in words]
-    is_filler, i = [False] * len(words), 0
+    matches, i = [], 0                   # [range of word indexes] per filler said
     while i < len(words):
         n = next((len(p) for p in phrases if tuple(said[i:i + len(p)]) == p), 0)
-        for j in range(i, i + n):
-            is_filler[j] = True
+        if n:
+            matches.append(range(i, i + n))
         i += n or 1
+    if not islands:
+        return [], len(matches), set()
 
     def island_of(start, end):
         overlap = [max(0.0, min(end, b) - max(start, a)) for a, b in islands]
@@ -201,19 +211,76 @@ def filler_cuts(words, islands, fillers, guard=0.03):
         return min(range(len(islands)),
                    key=lambda k: min(abs(mid - islands[k][0]), abs(mid - islands[k][1])))
 
-    members = {}
-    for (start, end, _), filler in zip(words, is_filler):
-        if islands:
-            members.setdefault(island_of(start, end), []).append(filler)
+    home = [island_of(w[0], w[1]) for w in words]
+    filler_words = {j for m in matches for j in m}
+    cut = {home[j] for j in filler_words}
+    cut -= {home[j] for j in range(len(words)) if j not in filler_words}
+    # A phrase half in a kept island stays whole: drop the rest of it, and
+    # repeat, since that can strand another phrase sharing an island with it.
+    changed = True
+    while changed:
+        changed = False
+        for m in matches:
+            if any(home[j] in cut for j in m) and not all(home[j] in cut for j in m):
+                cut -= {home[j] for j in m}
+                changed = True
+
+    def segment_of(k):
+        mid = sum(islands[k]) / 2
+        return next(((a, b) for a, b in segments if a <= mid <= b), None)
+
     cuts = []
-    for k in sorted(members):
-        if all(members[k]):
-            start, end = islands[k]
-            if k + 1 < len(islands):
-                end = max(end, islands[k + 1][0] - guard)
-            cuts.append((start, end))
-    left = sum(is_filler) - sum(len(members[k]) for k in members if all(members[k]))
-    return cuts, left
+    for k in sorted(cut):
+        seg = segment_of(k)
+        if seg is None:
+            continue                     # already inside a cut silence
+        start, end = islands[k]
+        if k == 0 or islands[k - 1][1] <= seg[0]:
+            start = seg[0]               # first speech in its segment
+        if k + 1 < len(islands) and islands[k + 1][0] < seg[1]:
+            end = max(end, islands[k + 1][0] - guard)
+        else:
+            end = seg[1]                 # last speech in its segment
+        cuts.append((start, end))
+    gone = {j for m in matches if all(home[j] in cut for j in m) for j in m}
+    return cuts, sum(1 for m in matches if m[0] not in gone), gone
+
+
+def drop_words(cues, words, gone):
+    """Take the cut fillers out of the caption text, not just the audio.
+
+    The .srt and the JSON come from one whisper run, so their words appear in
+    the same order; each JSON word is matched to the next caption word that
+    reads the same, and the ones in `gone` are removed. A cue left with no
+    words is dropped.
+    """
+    def norm(text):
+        return re.sub(r"[^\w']", "", text.lower())
+
+    slots = [(c, li, wi) for c, cue in enumerate(cues)
+             for li, line in enumerate(cue["text"].split("\n"))
+             for wi, _ in enumerate(line.split())]
+    text = {(c, li): cue["text"].split("\n")[li].split()
+            for c, cue in enumerate(cues)
+            for li in range(len(cue["text"].split("\n")))}
+    drop, at = set(), 0
+    for j, word in enumerate(words):
+        for k in range(at, min(at + 4, len(slots))):    # whisper splits a few differently
+            c, li, wi = slots[k]
+            if norm(text[(c, li)][wi]) == norm(word[2]):
+                if j in gone:
+                    drop.add(slots[k])
+                at = k + 1
+                break
+    out = []
+    for c, cue in enumerate(cues):
+        lines = [" ".join(w for wi, w in enumerate(text[(c, li)])
+                          if (c, li, wi) not in drop)
+                 for li in range(len(cue["text"].split("\n")))]
+        kept = "\n".join(line for line in lines if line)
+        if kept:
+            out.append({**cue, "text": kept})
+    return out
 
 
 def remap(segments):
@@ -345,12 +412,13 @@ def main():
         cuts = [(c["start"], c["end"]) for c in analysis.get("cuts", [])]
         segments = subtract(segments, cuts, args.min_clip)
         print(f"✂️  applied {len(cuts)} cuts from {args.analysis}")
-    fillers = []
+    fillers, words, gone = [], [], set()
     if args.fillers:
         islands = speech_islands(detect_silence(source, args.threshold, WORD_GAP),
                                  meta["duration"])
-        fillers, left = filler_cuts(load_word_times(args.fillers), islands,
-                                    args.filler_words.split(","))
+        words = load_word_times(args.fillers)
+        fillers, left, gone = filler_cuts(words, islands, segments,
+                                          args.filler_words.split(","))
         # Not --min-clip: a keep split around an "um" is two halves of one
         # sentence, and dropping a short half would cut real words. Only a
         # sliver too short to hold a word goes.
@@ -396,7 +464,10 @@ def main():
         print(f"✓ {chapters_out}  ({len(moved)} chapters on the cut timeline)")
 
     if args.srt:
-        cues = remap_cues(parse_srt(args.srt), segments)
+        cues = parse_srt(args.srt)
+        if gone:
+            cues = drop_words(cues, words, gone)
+        cues = remap_cues(cues, segments)
         destination = args.srt_out or str(Path(args.srt).with_suffix(".cut.srt"))
         write_srt(destination, cues)
         print(f"✓ {destination}  ({len(cues)} cues remapped)")

@@ -94,31 +94,53 @@ class AutocutTest(unittest.TestCase):
 
     # Timings shaped like a real DTW run: each word's span lags its island.
     ISLANDS = [(0.0, 0.44), (0.66, 0.95), (1.19, 2.5), (2.72, 3.04), (3.29, 5.0)]
+    WHOLE = [(0.0, 5.0)]
+
+    def cut(self, words, fillers=autocut.FILLERS, islands=None, segments=None):
+        cuts, left, gone = autocut.filler_cuts(words, islands or self.ISLANDS,
+                                               segments or self.WHOLE, fillers)
+        return [(round(a, 2), round(b, 2)) for a, b in cuts], left, gone
 
     def test_filler_cuts_take_the_island_and_the_pause_after(self):
         words = [(0.0, 0.52, "So,"), (0.74, 1.0, "Um,"), (1.24, 1.5, "today"),
                  (1.5, 2.2, "we go"), (2.24, 2.78, "to,"), (2.82, 3.12, "uh,"),
                  (3.44, 3.68, "deploy")]
-        cuts, left = autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS)
-        self.assertEqual([(a, round(b, 2)) for a, b in cuts],
-                         [(0.66, 1.16), (2.72, 3.26)])
-        self.assertEqual(left, 0)
+        self.assertEqual(self.cut(words),
+                         ([(0.66, 1.16), (2.72, 3.26)], 0, {1, 5}))
 
     def test_filler_cuts_leave_a_filler_run_into_speech(self):
         # "um" shares the third island with "today": cutting it would cut speech.
         words = [(0.0, 0.52, "So,"), (0.74, 1.0, "right"), (1.24, 1.5, "um"),
                  (1.5, 2.2, "today")]
-        self.assertEqual(autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS),
-                         ([], 1))
+        self.assertEqual(self.cut(words), ([], 1, set()))
 
     def test_filler_cuts_match_phrases_and_keep_like_by_default(self):
         words = [(0.0, 0.4, "like"), (0.7, 0.8, "You"), (0.8, 0.95, "know,"),
                  (1.24, 2.4, "deploy")]
-        self.assertEqual(autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS),
-                         ([], 0))
-        cuts, _ = autocut.filler_cuts(words, self.ISLANDS, ["like", "you know"])
-        self.assertEqual([(a, round(b, 2)) for a, b in cuts],
-                         [(0.0, 0.63), (0.66, 1.16)])
+        self.assertEqual(self.cut(words), ([], 0, set()))
+        self.assertEqual(self.cut(words, ["like", "you know"]),
+                         ([(0.0, 0.63), (0.66, 1.16)], 0, {0, 1, 2}))
+
+    def test_filler_cuts_take_padding_at_segment_edges(self):
+        # R-001: keep_segments padded speech by 0.15s. A filler opening a
+        # segment takes the lead-in padding; one closing it takes the tail;
+        # neither reaches across a cut silence into the next segment.
+        islands = [(1.0, 1.3), (1.5, 2.0), (3.0, 3.3), (4.0, 4.6)]
+        segments = [(0.85, 3.45), (3.85, 4.75)]
+        words = [(0.9, 1.2, "Um,"), (1.4, 1.9, "today"), (2.9, 3.2, "uh"),
+                 (3.9, 4.5, "deploy")]
+        cuts, left, _ = self.cut(words, islands=islands, segments=segments)
+        self.assertEqual((cuts, left), ([(0.85, 1.47), (3.0, 3.45)], 0))
+        self.assertEqual(autocut.subtract(segments, cuts, 0.08),
+                         [(1.47, 3.0), (3.85, 4.75)])
+
+    def test_filler_cuts_take_a_phrase_whole_or_not_at_all(self):
+        # R-002: "you know" split by a pause, "you" sharing an island with "Do".
+        islands = [(0.0, 0.44), (0.66, 0.95), (1.19, 2.5)]
+        words = [(0.0, 0.2, "Do"), (0.2, 0.44, "you"), (0.66, 0.95, "know"),
+                 (1.24, 2.0, "this")]
+        self.assertEqual(self.cut(words, ["you know"], islands, [(0.0, 2.5)]),
+                         ([], 1, set()))
 
     def test_load_word_times_uses_dtw_and_ignores_punctuation(self):
         doc = {"transcription": [{"tokens": [
@@ -131,6 +153,29 @@ class AutocutTest(unittest.TestCase):
             path.write_text(json.dumps(doc))
             self.assertEqual(autocut.load_word_times(path),
                              [(0.0, 0.52, "So,"), (0.74, 1.0, "hmm,")])
+
+    def test_load_word_times_keeps_spaced_punctuation_off_the_word_list(self):
+        # R-003: whisper emits " -" and " ..." as their own tokens. As words
+        # they read as non-fillers and would block cutting the "um" beside them.
+        doc = {"transcription": [{"tokens": [
+            {"text": " um", "t_dtw": 100}, {"text": " -", "t_dtw": 110},
+            {"text": " ...", "t_dtw": 115}, {"text": " so", "t_dtw": 150}]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "talk.json"
+            path.write_text(json.dumps(doc))
+            self.assertEqual(autocut.load_word_times(path),
+                             [(0.0, 1.0, "um - ..."), (1.15, 1.5, "so")])
+
+    def test_drop_words_removes_cut_fillers_from_captions(self):
+        # R-004: the audio lost "um" and "uh"; the captions must too.
+        cues = [{"start": 0.0, "end": 2.0, "text": "So, um, today we\nare going to,"},
+                {"start": 2.0, "end": 3.0, "text": "uh,"},
+                {"start": 3.0, "end": 4.0, "text": "deploy, um"}]
+        words = [(0, 0, w) for w in ("So,", "um,", "today", "we", "are", "going",
+                                     "to,", "uh,", "deploy,", "um")]
+        self.assertEqual(autocut.drop_words(cues, words, {1, 7}), [
+            {"start": 0.0, "end": 2.0, "text": "So, today we\nare going to,"},
+            {"start": 3.0, "end": 4.0, "text": "deploy, um"}])
 
 
 class AnalyzeTest(unittest.TestCase):

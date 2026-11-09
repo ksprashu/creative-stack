@@ -50,7 +50,8 @@ in the frame, and the motion detector will happily push in on them.
      --render out/cut.mp4 --srt out/talk.srt --srt-out out/cut.srt
    ```
    The cut follows the audio, not the word timestamps: a filler goes only when a pause sets it
-   off from real speech, and the report counts any left in. The default list is
+   off from real speech, and the report counts any left in. With `--srt` the cut fillers leave the
+   captions too. The default list is
    um/uh/erm/er/ah/hmm; `--filler-words "um,uh,you know,I mean,like"` widens it. Leave "like"
    out unless you have listened: as often as not it is the sentence.
 
