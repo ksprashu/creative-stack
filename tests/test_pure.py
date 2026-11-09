@@ -43,6 +43,7 @@ import scan  # noqa: E402
 import segment  # noqa: E402
 import session  # noqa: E402
 import sync_skills  # noqa: E402
+import vidscan  # noqa: E402
 import voice  # noqa: E402
 
 
@@ -530,6 +531,58 @@ class ScanTest(unittest.TestCase):
                          [595, 395, 110, 30])
         self.assertEqual(len(spec["annotations"]), 3)
 
+
+    def test_ocr_maps_trimmed_boxes_back_to_the_full_image(self):
+        tsv = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop"
+               "\twidth\theight\tconf\ttext\n"
+               "5\t1\t1\t1\t1\t1\t20\t40\t100\t30\t96\ttoken:\n")
+        done = subprocess.CompletedProcess([], 0, stdout=tsv.encode(), stderr=b"")
+        with mock.patch.object(scan, "prepare", return_value=(b"", 2.0, (1280, 800), (0, 16))), \
+                mock.patch.object(scan.hostenv, "which", return_value="tesseract"), \
+                mock.patch.object(scan.subprocess, "run", return_value=done):
+            size, lines = scan.ocr(Path("frame.png"))
+        self.assertEqual(size, (1280, 800))
+        self.assertEqual(lines[0][0]["box"], [10, 36, 50, 15])
+
+
+class VidScanTest(unittest.TestCase):
+    def hit(self, kind, box):
+        return {"kind": kind, "preview": "x… (9 chars)", "box": box}
+
+    def test_tracks_join_samples_and_bridge_one_missed_frame(self):
+        key = self.hit("label", [100, 100, 200, 20])
+        moved = self.hit("label", [104, 102, 200, 20])        # scroll jitter
+        samples = [(0, []), (1, [key]), (2, [moved]), (3, []), (4, [key]),
+                   (5, []), (6, []), (7, [key])]
+        found = vidscan.tracks(samples, 1.0)
+        self.assertEqual([(k["start"], k["end"]) for k in found], [(1, 4), (7, 7)])
+        self.assertEqual(found[0]["box"], [100, 100, 204, 22])
+
+    def test_tracks_keep_kinds_and_places_apart(self):
+        samples = [(0, [self.hit("label", [0, 0, 100, 20]),
+                        self.hit("email", [0, 0, 100, 20]),
+                        self.hit("label", [0, 300, 100, 20])])]
+        self.assertEqual(len(vidscan.tracks(samples, 1.0)), 3)
+
+    def test_widen_pads_time_and_rounds_box_to_even_pixels(self):
+        track = {"kind": "label", "preview": "", "start": 0.5, "end": 9.5,
+                 "box": [101, 51, 99, 21]}
+        out = vidscan.widen(track, 1.0, 10.0, (1280, 721))
+        self.assertEqual((out["start"], out["end"]), (0.0, 10.0))
+        x, y, w, h = out["box"]
+        self.assertTrue(all(v % 2 == 0 for v in out["box"]))
+        self.assertTrue(x <= 101 and y <= 51 and x + w >= 200 and y + h >= 72)
+        self.assertLessEqual(y + h, 720)
+
+    def test_blur_graph_overlays_each_track_only_in_its_span(self):
+        found = [{"box": [10, 20, 200, 40], "start": 1.0, "end": 3.5},
+                 {"box": [0, 0, 6, 4], "start": 0.0, "end": 2.0}]
+        graph = vidscan.blur_graph(found)
+        self.assertTrue(graph.startswith("[0:v]split=3[base][c0][c1];"))
+        self.assertIn("[c0]crop=200:40:10:20,boxblur=luma_radius=19:", graph)
+        self.assertIn("chroma_radius=1:", graph)                   # tiny box stays legal
+        self.assertIn("[base][b0]overlay=10:20:enable='between(t,1.0,3.5)'[v0];", graph)
+        self.assertTrue(graph.rstrip().endswith("enable='between(t,0.0,2.0)'[vout]"))
 
 if __name__ == "__main__":
     unittest.main()

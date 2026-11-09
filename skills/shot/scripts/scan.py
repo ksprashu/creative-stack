@@ -155,26 +155,36 @@ def ocr(path):
     binary = hostenv.which("tesseract") or die(
         "tesseract is not installed — run scripts/bootstrap.sh, or: "
         "brew install tesseract / apt install tesseract-ocr")
-    data, scale, size = prepare(path)
+    data, scale, size, (dx, dy) = prepare(path)
     # psm 11: sparse text. A screenshot is islands of labels, not prose.
     out = subprocess.run([binary, "stdin", "stdout", "--psm", "11", "tsv"],
                          input=data, capture_output=True, check=False)
     if out.returncode != 0:
         die(f"tesseract failed: {out.stderr.decode(errors='replace').strip()[:300]}")
     page, lines = parse_tsv(out.stdout.decode(errors="replace"), scale)
+    for word in (w for line in lines for w in line):
+        word["box"][0] += dx
+        word["box"][1] += dy
     return size or page, lines
 
 
 def prepare(path):
-    """Grey, contrast-stretched, dark-on-light and upscaled: what tesseract
-    reads best. Returns (PNG bytes, scale, original size). Without Pillow the
-    original goes in unchanged and the size comes from tesseract."""
+    """Grey, trimmed, contrast-stretched, dark-on-light and upscaled: what
+    tesseract reads best. Returns (PNG bytes, scale, original size, (dx, dy)
+    of the trimmed copy's corner). Without Pillow the original goes in
+    unchanged and the size comes from tesseract."""
     try:
-        from PIL import Image, ImageOps, ImageStat       # noqa: PLC0415
+        from PIL import Image, ImageChops, ImageOps, ImageStat   # noqa: PLC0415
     except ImportError:
-        return path.read_bytes(), 1.0, None
-    img = ImageOps.autocontrast(Image.open(path).convert("L"))
+        return path.read_bytes(), 1.0, None, (0, 0)
+    img = Image.open(path).convert("L")
     size = img.size
+    # A uniform border (letterboxed video, a window on a flat desktop) gives
+    # the page a third tone; tesseract's global threshold then splits border
+    # from page and loses the text. Read only what is inside it.
+    edge = ImageChops.difference(img, Image.new("L", size, img.getpixel((0, 0))))
+    box = edge.point(lambda v: 255 if v > 8 else 0).getbbox() or (0, 0, *size)
+    img = ImageOps.autocontrast(img.crop(box))
     if ImageStat.Stat(img).mean[0] < 128:               # dark mode
         img = ImageOps.invert(img)
     scale = max(1.0, OCR_TARGET_WIDTH / img.width)
@@ -183,7 +193,7 @@ def prepare(path):
                          Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, "PNG")
-    return buf.getvalue(), scale, size
+    return buf.getvalue(), scale, size, box[:2]
 
 
 # -------------------------------------------------------------- rules ---
