@@ -35,6 +35,8 @@ As with scan.py, matched text is never printed or written in full.
 
 import argparse
 import json
+import math
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -94,14 +96,16 @@ def tracks(samples, interval):
 
 def widen(track, interval, duration, size):
     """Pad the track in time (one interval each side, clamped) and in space
-    (scan.py's padding, rounded out to even pixels for yuv420 crops)."""
+    (scan.py's padding, rounded out to even pixels for yuv420 crops).
+    A `duration` of 0 means the container did not say (common for WebM and
+    MKV captures), so the end is left unclamped."""
     x, y, w, h = scan.pad(track["box"], size)
     x0, y0 = x - x % 2, y - y % 2
     x1 = min(size[0] - size[0] % 2, x + w + (x + w) % 2)
     y1 = min(size[1] - size[1] % 2, y + h + (y + h) % 2)
     return {**track,
             "start": round(max(0.0, track["start"] - interval), 3),
-            "end": round(min(duration, track["end"] + interval), 3),
+            "end": round(min(duration or math.inf, track["end"] + interval), 3),
             "box": [x0, y0, max(2, x1 - x0), max(2, y1 - y0)]}
 
 
@@ -149,7 +153,9 @@ def sample(src, fps, tmp):
     ffmpeg(["-i", str(src), "-vf", f"fps={fps}", str(Path(tmp) / "f%06d.png")])
     frames = sorted(Path(tmp).glob("f*.png"))
     # The fps filter's first output frame is t=0, then one every 1/fps.
-    return [(round(i / fps, 3), p) for i, p in enumerate(frames)]
+    # Unrounded: tracks() measures gaps against 1/fps, and a rounded time
+    # (1/3 s -> 0.333) can push a one-sample gap past the bridging limit.
+    return [(i / fps, p) for i, p in enumerate(frames)]
 
 
 def scan_video(src, fps, meta):
@@ -215,6 +221,11 @@ def main():
         return 0
     if not found:
         print(f"{GREEN}✓{RESET} nothing flagged in {src} — still watch it before publishing")
+        if args.render:
+            # The next step reads the --render path, so it must exist even
+            # when there is nothing to blur.
+            shutil.copyfile(src, args.render)
+            print(f"  {DIM}copied unchanged to {args.render}{RESET}")
         return 0
     if args.render:
         render(src, found, args.render, meta)

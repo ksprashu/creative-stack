@@ -65,6 +65,8 @@ OCR_TARGET_WIDTH = 2400
 # Blur a little past the OCR box, which hugs the glyphs: anti-aliased edges
 # and descenders outside it can still give a character away.
 PAD_FRACTION = 0.25
+# Blank space kept around the text after trimming the border, in pixels.
+TRIM_MARGIN = 16
 
 AI_QUERY = ("anything that should not be published from a screenshot: faces, "
             "profile photos and avatars, people's names, email addresses, phone "
@@ -184,16 +186,26 @@ def prepare(path):
     # from page and loses the text. Read only what is inside it.
     edge = ImageChops.difference(img, Image.new("L", size, img.getpixel((0, 0))))
     box = edge.point(lambda v: 255 if v > 8 else 0).getbbox() or (0, 0, *size)
-    img = ImageOps.autocontrast(img.crop(box))
+    img = img.crop(box)
+    # With no border the trim lands on the glyphs themselves, and tesseract
+    # misses text that touches the edge. Give it back a margin in the page's
+    # own colour (the commonest tone), so a border never returns.
+    hist = img.histogram()
+    margin = max(TRIM_MARGIN, round(min(size) * 0.02))
+    img = ImageOps.expand(img, border=margin, fill=hist.index(max(hist)))
+    box = (box[0] - margin, box[1] - margin)
+    img = ImageOps.autocontrast(img)
     if ImageStat.Stat(img).mean[0] < 128:               # dark mode
         img = ImageOps.invert(img)
-    scale = max(1.0, OCR_TARGET_WIDTH / img.width)
+    # Scale by the full frame, not the trimmed copy: a lone word trimmed to
+    # 40px must not be blown up 60 times.
+    scale = max(1.0, OCR_TARGET_WIDTH / size[0])
     if scale > 1.0:
         img = img.resize((round(img.width * scale), round(img.height * scale)),
                          Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, "PNG")
-    return buf.getvalue(), scale, size, box[:2]
+    return buf.getvalue(), scale, size, box
 
 
 # -------------------------------------------------------------- rules ---

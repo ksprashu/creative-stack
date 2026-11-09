@@ -68,8 +68,8 @@ in the frame, and the motion detector will happily push in on them.
 
 3. **Push in on the action** — optional, but it is what makes a 4K capture legible at blog width:
    ```bash
-   python3 scripts/zoom.py -i out/cut.mp4 --auto --spec-out out/zoom.yaml   # review
-   python3 scripts/zoom.py -i out/cut.mp4 --spec out/zoom.yaml -o out/zoomed.mp4
+   python3 scripts/zoom.py -i out/redacted.mp4 --auto --spec-out out/zoom.yaml   # review
+   python3 scripts/zoom.py -i out/redacted.mp4 --spec out/zoom.yaml -o out/zoomed.mp4
    ```
 
 4. **Caption**, styled from `brand/tokens.json`:

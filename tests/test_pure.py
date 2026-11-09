@@ -20,6 +20,9 @@ python3 with no venv, no ffmpeg and no network.
 """
 
 import argparse
+import contextlib
+import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -544,6 +547,22 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(size, (1280, 800))
         self.assertEqual(lines[0][0]["box"], [10, 36, 50, 15])
 
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "needs Pillow")
+    def test_prepare_keeps_a_margin_and_scales_by_the_full_frame(self):
+        from PIL import Image
+        img = Image.new("L", (800, 600), 255)
+        img.paste(0, (390, 290, 430, 302))               # one small "word", no border
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "word.png"
+            img.save(path)
+            data, scale, size, (dx, dy) = scan.prepare(path)
+        out = Image.open(io.BytesIO(data))
+        self.assertEqual((size, scale), ((800, 600), 3.0))
+        margin = scan.TRIM_MARGIN
+        self.assertEqual((dx, dy), (390 - margin, 290 - margin))
+        self.assertEqual(out.size, (round((40 + 2 * margin) * 3), round((12 + 2 * margin) * 3)))
+        self.assertEqual(out.getpixel((0, 0)), 255)       # margin in the page's colour
+
 
 class VidScanTest(unittest.TestCase):
     def hit(self, kind, box):
@@ -557,6 +576,37 @@ class VidScanTest(unittest.TestCase):
         found = vidscan.tracks(samples, 1.0)
         self.assertEqual([(k["start"], k["end"]) for k in found], [(1, 4), (7, 7)])
         self.assertEqual(found[0]["box"], [100, 100, 204, 22])
+
+    def test_tracks_bridge_a_missed_frame_at_fractional_intervals(self):
+        key = self.hit("label", [100, 100, 200, 20])
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(vidscan, "ffmpeg"):
+            for i in range(4):
+                (Path(tmp) / f"f{i:06d}.png").write_bytes(b"")
+            times = [t for t, _ in vidscan.sample(Path("in.mp4"), 3.0, tmp)]
+        samples = [(times[0], [key]), (times[1], []), (times[2], []), (times[3], [key])]
+        self.assertEqual(len(vidscan.tracks(samples, 1 / 3.0)), 2)
+        samples[2] = (times[2], [key])
+        del samples[1]
+        self.assertEqual(len(vidscan.tracks(samples, 1 / 3.0)), 1)
+
+    def test_widen_leaves_the_end_open_when_duration_is_unknown(self):
+        track = {"kind": "label", "preview": "", "start": 4.0, "end": 9.5,
+                 "box": [100, 50, 100, 20]}
+        self.assertEqual(vidscan.widen(track, 1.0, 0.0, (1280, 720))["end"], 10.5)
+
+    def test_render_with_nothing_found_still_writes_the_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out, tracks = (Path(tmp) / n for n in ("in.mp4", "out.mp4", "scan.json"))
+            src.write_bytes(b"video")
+            tracks.write_text("[]")
+            argv = ["vidscan.py", "-i", str(src), "--from-json", str(tracks), "--render", str(out)]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(vidscan, "need"), \
+                    mock.patch.object(vidscan, "probe", return_value={"has_video": True}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(vidscan.main(), 0)
+            self.assertEqual(out.read_bytes(), b"video")
 
     def test_tracks_keep_kinds_and_places_apart(self):
         samples = [(0, [self.hit("label", [0, 0, 100, 20]),
