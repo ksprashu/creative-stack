@@ -1,6 +1,6 @@
 ---
 name: vidkit
-description: Turn a raw screen recording into a published video — transcribe, cut silence, auto-zoom, brand-styled captions, chapters, loudness, encode ladder, and an NLE handoff. Trigger via /vidkit.
+description: Turn a raw screen recording into a published video — transcribe, cut silence and filler words, auto-zoom, brand-styled captions, chapters, loudness, encode ladder, and an NLE handoff. Trigger via /vidkit.
 disable-model-invocation: true
 ---
 
@@ -40,6 +40,19 @@ in the frame, and the motion detector will happily push in on them.
    ```
    If it removed too much, the knob is `--threshold` (lower dB = less aggressive), then
    `--padding`.
+
+   **Cut the "um"s too.** Whisper leaves fillers out of the text unless it is primed to keep
+   them, so transcribe with `--fillers` (it also turns on DTW token timings, a little slower),
+   then hand autocut the JSON:
+   ```bash
+   python3 scripts/transcribe.py -i raw.mov -o out/talk --fillers --vocab "Cloud Run, GKE"
+   python3 scripts/autocut.py -i raw.mov -o out/cut.json --fillers out/talk.json \
+     --render out/cut.mp4 --srt out/talk.srt --srt-out out/cut.srt
+   ```
+   The cut follows the audio, not the word timestamps: a filler goes only when a pause sets it
+   off from real speech, and the report counts any left in. The default list is
+   um/uh/erm/er/ah/hmm; `--filler-words "um,uh,you know,I mean,like"` widens it. Leave "like"
+   out unless you have listened: as often as not it is the sentence.
 
    **Optionally, let Gemini propose the edit first.** Silence detection cannot see a false
    start, a retake or two minutes watching a build spinner; Gemini watching a small proxy
@@ -190,6 +203,9 @@ python3 ../shot/scripts/frame.py -i out/publish/cloudrun-walkthrough-poster.png 
     positioned children, so a zero-height wrapper drags them off-screen — the lower third
     rendered as an empty, perfectly valid ProRes file until its `.exit` wrapper was fixed.
     Extract a frame and look at it before trusting a render.
+*   **NEVER** feed `autocut.py --fillers` a transcript made without `transcribe.py --fillers`.
+    It dies for want of DTW timings, and even an older `-ojf` with them has had the fillers
+    tidied out of its text, so there is nothing to find.
 *   **NEVER** re-transcribe to fix a wrong word — edit the `.srt` and re-run from step 2.
     The transcript is a source file, not an intermediate.
 *   **NEVER** trust an auto-cut on a recording with long deliberate pauses (a demo waiting on a

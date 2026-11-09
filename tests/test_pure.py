@@ -88,6 +88,50 @@ class AutocutTest(unittest.TestCase):
             {"start": 0.5, "end": 1.5, "text": "kept"},
             {"start": 3.0, "end": 4.0, "text": "tail"}])
 
+    def test_speech_islands_inverts_silences(self):
+        self.assertEqual(autocut.speech_islands([(1.0, 2.0), (3.0, float("inf"))], 4.0),
+                         [(0.0, 1.0), (2.0, 3.0)])
+
+    # Timings shaped like a real DTW run: each word's span lags its island.
+    ISLANDS = [(0.0, 0.44), (0.66, 0.95), (1.19, 2.5), (2.72, 3.04), (3.29, 5.0)]
+
+    def test_filler_cuts_take_the_island_and_the_pause_after(self):
+        words = [(0.0, 0.52, "So,"), (0.74, 1.0, "Um,"), (1.24, 1.5, "today"),
+                 (1.5, 2.2, "we go"), (2.24, 2.78, "to,"), (2.82, 3.12, "uh,"),
+                 (3.44, 3.68, "deploy")]
+        cuts, left = autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS)
+        self.assertEqual([(a, round(b, 2)) for a, b in cuts],
+                         [(0.66, 1.16), (2.72, 3.26)])
+        self.assertEqual(left, 0)
+
+    def test_filler_cuts_leave_a_filler_run_into_speech(self):
+        # "um" shares the third island with "today": cutting it would cut speech.
+        words = [(0.0, 0.52, "So,"), (0.74, 1.0, "right"), (1.24, 1.5, "um"),
+                 (1.5, 2.2, "today")]
+        self.assertEqual(autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS),
+                         ([], 1))
+
+    def test_filler_cuts_match_phrases_and_keep_like_by_default(self):
+        words = [(0.0, 0.4, "like"), (0.7, 0.8, "You"), (0.8, 0.95, "know,"),
+                 (1.24, 2.4, "deploy")]
+        self.assertEqual(autocut.filler_cuts(words, self.ISLANDS, autocut.FILLERS),
+                         ([], 0))
+        cuts, _ = autocut.filler_cuts(words, self.ISLANDS, ["like", "you know"])
+        self.assertEqual([(a, round(b, 2)) for a, b in cuts],
+                         [(0.0, 0.63), (0.66, 1.16)])
+
+    def test_load_word_times_uses_dtw_and_ignores_punctuation(self):
+        doc = {"transcription": [{"tokens": [
+            {"text": "[_BEG_]", "t_dtw": -1},
+            {"text": " So", "t_dtw": 52}, {"text": ",", "t_dtw": 74},
+            {"text": " h", "t_dtw": 90}, {"text": "mm", "t_dtw": 100},
+            {"text": ",", "t_dtw": 124}, {"text": "<|endoftext|>", "t_dtw": -1}]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "talk.json"
+            path.write_text(json.dumps(doc))
+            self.assertEqual(autocut.load_word_times(path),
+                             [(0.0, 0.52, "So,"), (0.74, 1.0, "hmm,")])
+
 
 class AnalyzeTest(unittest.TestCase):
     def test_clean_clamps_sorts_and_starts_chapters_at_zero(self):
