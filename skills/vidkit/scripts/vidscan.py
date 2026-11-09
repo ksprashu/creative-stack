@@ -26,9 +26,10 @@ track with a start, an end and a box.
 
 Sampling is plain `--fps` (default 1): a secret on screen for less than one
 sample interval can fall between samples, so raise it for fast-moving demos
-or run `--check` at a higher rate on the result. Each track is widened by a
-whole interval on both sides, because the text may have appeared any time
-after the previous sample — the blur arrives early rather than late.
+or run `--check` at a higher rate on the result. Each track is widened by
+GAP_SAMPLES + 1 intervals on both sides: the text may have appeared any time
+after the previous sample, and OCR can miss it for a few samples running, so
+the blur arrives early and leaves late rather than leaving a readable gap.
 
 As with scan.py, matched text is never printed or written in full.
 """
@@ -95,7 +96,9 @@ def tracks(samples, interval):
 
 
 def widen(track, interval, duration, size):
-    """Pad the track in time (one interval each side, clamped) and in space
+    """Pad the track in time (GAP_SAMPLES + 1 intervals each side, clamped:
+    two tracks of one secret split by more OCR misses than tracks() bridges
+    still meet in the middle) and in space
     (scan.py's padding, rounded out to even pixels for yuv420 crops).
     A `duration` of 0 means the container did not say (common for WebM and
     MKV captures), so the end is left unclamped."""
@@ -103,10 +106,30 @@ def widen(track, interval, duration, size):
     x0, y0 = x - x % 2, y - y % 2
     x1 = min(size[0] - size[0] % 2, x + w + (x + w) % 2)
     y1 = min(size[1] - size[1] % 2, y + h + (y + h) % 2)
+    pad = interval * (GAP_SAMPLES + 1)
     return {**track,
-            "start": round(max(0.0, track["start"] - interval), 3),
-            "end": round(min(duration or math.inf, track["end"] + interval), 3),
+            "start": round(max(0.0, track["start"] - pad), 3),
+            "end": round(min(duration or math.inf, track["end"] + pad), 3),
             "box": [x0, y0, max(2, x1 - x0), max(2, y1 - y0)]}
+
+
+def load_tracks(path):
+    """Read a --json file back, after the user has edited it. Every number
+    lands in the ffmpeg filter graph, so each is coerced to int or float here
+    rather than interpolated as whatever the file held."""
+    try:
+        found = []
+        for k in json.loads(Path(path).read_text()):
+            box = [int(v) for v in k["box"]]
+            start, end = float(k["start"]), float(k["end"])
+            if len(box) != 4 or min(box[2:]) < 2 or not 0 <= start <= end:
+                raise ValueError(k)
+            found.append({"kind": str(k.get("kind", "?")),
+                          "preview": str(k.get("preview", "")),
+                          "start": start, "end": end, "box": box})
+        return found
+    except (OSError, TypeError, KeyError, ValueError) as e:
+        die(f"{path}: not a vidscan track list ({e})")
 
 
 # ------------------------------------------------------------- render ---
@@ -206,7 +229,7 @@ def main():
         die(f"no video stream in {src}")
 
     if args.from_json:
-        found = json.loads(Path(args.from_json).read_text())
+        found = load_tracks(args.from_json)
     else:
         found = scan_video(src, args.fps, meta)
     report(found)

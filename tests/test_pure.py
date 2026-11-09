@@ -593,7 +593,33 @@ class VidScanTest(unittest.TestCase):
     def test_widen_leaves_the_end_open_when_duration_is_unknown(self):
         track = {"kind": "label", "preview": "", "start": 4.0, "end": 9.5,
                  "box": [100, 50, 100, 20]}
-        self.assertEqual(vidscan.widen(track, 1.0, 0.0, (1280, 720))["end"], 10.5)
+        self.assertEqual(vidscan.widen(track, 1.0, 0.0, (1280, 720))["end"], 11.5)
+
+    def test_widened_tracks_cover_a_gap_tracks_does_not_bridge(self):
+        # Seen at 0 and 3, missed at 1 and 2: two tracks, but their blurs
+        # must still meet, or the secret is readable between them.
+        key = self.hit("label", [0, 0, 100, 20])
+        samples = [(0.0, [key]), (1.0, []), (2.0, []), (3.0, [key])]
+        first, second = (vidscan.widen(k, 1.0, 10.0, (1280, 720))
+                         for k in vidscan.tracks(samples, 1.0))
+        self.assertGreaterEqual(first["end"], second["start"])
+
+    def test_from_json_numbers_are_coerced_before_reaching_the_filter_graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "scan.json"
+            path.write_text(json.dumps([{"kind": "label", "box": ["10", 20, 30, 40],
+                                         "start": "1", "end": 2}]))
+            self.assertEqual(vidscan.load_tracks(path),
+                             [{"kind": "label", "preview": "", "start": 1.0,
+                               "end": 2.0, "box": [10, 20, 30, 40]}])
+            for bad in ({"box": [0, 0, 9, 9], "start": "1,0)'[x]", "end": 2},
+                        {"box": [0, 0, 9], "start": 0, "end": 1},
+                        {"box": [0, 0, 9, 9], "start": 2, "end": 1}):
+                path.write_text(json.dumps([bad]))
+                with self.assertRaises(SystemExit), \
+                        contextlib.redirect_stderr(io.StringIO()), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    vidscan.load_tracks(path)
 
     def test_render_with_nothing_found_still_writes_the_output(self):
         with tempfile.TemporaryDirectory() as tmp:
