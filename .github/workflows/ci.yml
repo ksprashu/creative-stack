@@ -37,8 +37,10 @@ jobs:
     name: skills + secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       # validate_skills.py is also the secret gate: it fails on a committed
@@ -63,7 +65,7 @@ jobs:
       matrix:
         include:
           - { name: ubuntu, runner: ubuntu-latest, container: "" }
-          - { name: arch, runner: ubuntu-latest, container: "archlinux:latest" }
+          - { name: arch, runner: ubuntu-latest, container: "archlinux:latest@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9" }
           - { name: macos, runner: macos-latest, container: "" }
     steps:
       # The Arch image has neither node nor tar, which actions/checkout needs.
@@ -76,7 +78,9 @@ jobs:
           # install asks for versions that have already been deleted and gets a
           # 404 from every mirror.
           pacman -Syu --noconfirm --needed python git tar nodejs npm
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: python3 scripts/packages.py --plan
       # Every package must resolve to *some* route. A `skip` on a non-optional
       # package means this distro has no way to install something the skills

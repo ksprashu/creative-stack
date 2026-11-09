@@ -112,6 +112,12 @@ class CaptionsTest(unittest.TestCase):
         self.assertEqual(captions.escape_text("<b>a{b}</b>\nc\nd\ne", 40),
                          "a(b)\\Nc\\Nd")
 
+    def test_filter_path_reopens_quotes_around_an_apostrophe(self):
+        # ass='<this>' must survive a quote in the path: `\'` alone would end
+        # the quoting and hand the rest of the path to the filtergraph parser.
+        self.assertEqual(captions.filter_path("it's a:b.ass"),
+                         r"it'\\\''s a\:b.ass")
+
     def test_time_words_uses_transcript_when_it_lines_up(self):
         cue = {"start": 1.0, "end": 2.0, "text": "hello world"}
         words = [(1.05, 1.4, "hello"), (1.5, 1.9, "world")]

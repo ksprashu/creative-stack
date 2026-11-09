@@ -378,8 +378,11 @@ def render_karaoke_video(audio_wav, ass_path, out_mp4, src_media=None, brand=Non
     width, height = tokens.get("video", {}).get("resolution", [1920, 1080])
     info = S.probe(audio_wav)
     has_ass = bool(ass_path and Path(ass_path).exists())
-    esc_ass = (str(ass_path).replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
-               if has_ass else "")
+    # A quote closes the '...' string, appears escaped for both of ffmpeg's
+    # parsing levels, and reopens it; a bare \' would end the quoting and let
+    # the rest of the path parse as filters.
+    esc_ass = (str(ass_path).replace("\\", "\\\\").replace(":", r"\:")
+               .replace("'", r"'\\\''") if has_ass else "")
 
     has_video = False
     if src_media and Path(src_media).exists():
