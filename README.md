@@ -225,7 +225,6 @@ for generation, free software everywhere else.
     | --- | --- |
     | `/artgen` (`image.py`, `video.py`, `music.py`, `voice.py`) | your prompt, plus any reference images or text you pass |
     | `/raster segment.py --query` | the image, downscaled to 1536 px (one frame, for video) |
-    | `/raster segment.py --op inpaint --inpaint gemini` | the image with the selected region painted out |
     | `/shot scan.py --ai` | the screenshot, unredacted (it goes through `segment.py`) |
     | `/vidkit analyze.py` | a 640 px proxy of the recording, deleted from the Files API afterwards |
 

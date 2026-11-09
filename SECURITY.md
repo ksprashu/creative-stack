@@ -16,8 +16,8 @@ Only the latest `main` gets fixes.
 - Scripts in `scripts/` and `skills/*/scripts/` doing something the docs don't say. Examples:
   command or filter-graph injection, writing outside the output path, uploading data a command
   doesn't disclose, or leaking a credential.
-- Secret redaction (`/shot scan.py`, `/vidkit vidscan.py`) reporting an image or video as clean
-  when a secret it is documented to catch is still readable.
+- Secret redaction (`/shot scan.py`) reporting an image as clean when a secret it is documented
+  to catch is still readable.
 - The CI workflows in `.github/workflows/`.
 
 Third-party tools the bootstrap installs (ffmpeg, Blender, npm and PyPI packages and so on) are
