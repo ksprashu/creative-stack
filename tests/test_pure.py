@@ -291,6 +291,44 @@ class VoiceTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             voice.build_plan("A: hi\nB: hello", Args(engine="gemini", clone_from="me.wav"))
 
+    def test_custom_voice_pins_any_voices_api_id(self):
+        self.assertTrue(voice.custom_voice({"voice": "voice_abc"}))
+        self.assertTrue(voice.custom_voice({"speakers": {"A": "Kore", "B": "voicekey_x"}}))
+        self.assertTrue(voice.custom_voice({"voice": voice.CLONED, "replicated": True}))
+        self.assertFalse(voice.custom_voice({"voice": "Charon"}))
+
+    def test_best_read_keeps_a_good_take_when_the_retry_is_empty(self):
+        takes = iter([(b"\x01\x00", 24000, "something else entirely"), (b"", 24000, "")])
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(voice.best_read(lambda: next(takes), "the script text"),
+                             (b"\x01\x00", 24000))
+        self.assertIsNone(voice.best_read(lambda: (b"", 24000, ""), "x"))
+
+    def test_best_read_stops_at_a_faithful_take(self):
+        calls = []
+        def take():
+            calls.append(1)
+            return b"\x01\x00", 24000, "the script text"
+        self.assertEqual(voice.best_read(take, "The script text."), (b"\x01\x00", 24000))
+        self.assertEqual(len(calls), 1)
+
+    def test_own_voice_in_place_keeps_the_recording(self):
+        if not voice.G.hostenv.ffmpeg_bin("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "take.wav"
+            with wave.open(str(path), "wb") as w:
+                w.setnchannels(2)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(b"\x10\x00" * 2 * 48000)
+            with contextlib.redirect_stdout(io.StringIO()):
+                seconds = voice.use_own_voice(path, path)
+            self.assertAlmostEqual(seconds, 1.0, places=2)
+            with wave.open(str(path)) as w:
+                self.assertEqual((w.getnchannels(), w.getframerate()), (1, voice.RATE))
+
     def test_live_take_reads_every_part_until_turn_complete(self):
         import asyncio
         from types import SimpleNamespace as NS

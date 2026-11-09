@@ -65,6 +65,7 @@ import difflib
 import io
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -326,6 +327,18 @@ def tts_chain(primary, new_shape):
     return chain if new_shape else [m for m in chain if version(m) < 3.8]
 
 
+def custom_voice(plan):
+    """True when the plan speaks in a voices-API voice (replicated or designed).
+
+    Those live in AI Studio and only the 3.8 model they were made against can
+    speak them, whether they came from --clone-from, --voice voice_... or an
+    edited plan. A stock-voice fallback chain would just 400 on every model.
+    """
+    names = [plan.get("voice") or ""] + list((plan.get("speakers") or {}).values())
+    return bool(plan.get("replicated")) or any(
+        n.startswith(("voice_", "voicekey_")) for n in names)
+
+
 def synthesise(plan, args):
     """[(pcm, rate)] for every chunk, plus the model/backend that answered."""
     _, types = G.load_genai()
@@ -334,7 +347,11 @@ def synthesise(plan, args):
         G.warn("google-genai is too old for the Gemini 3.8 TTS request shape — "
                "skipping 3.8. Upgrade: uv pip install -U google-genai")
     chain = tts_chain(args.model or plan.get("model"), new_shape)
-    if plan.get("replicated"):
+    pinned = custom_voice(plan)
+    if pinned:
+        if args.backend == "vertex":
+            G.die("voice_... and replicated voices live in the AI Studio voices "
+                  "API; drop --backend vertex")
         if not new_shape:
             G.die("a replicated voice needs the Gemini 3.8 request shape: "
                   "uv pip install -U google-genai")
@@ -361,7 +378,7 @@ def synthesise(plan, args):
         # Retries and the other backend still apply; a different model does not.
         if used:
             chain = [used[0]]
-        backend = "aistudio" if plan.get("replicated") else args.backend
+        backend = "aistudio" if pinned else args.backend
         take, model, backend = G.attempt(chain, call_for(chunk), backend,
                                          quiet=index > 0)
         used = (model, backend)
@@ -485,6 +502,31 @@ async def live_take(client, types, model, text, voice, style):
     return bytes(pcm), rate, "".join(heard)
 
 
+def best_read(take, text):
+    """(pcm, rate) from up to two Live takes, or None if neither had audio.
+
+    `take()` returns (pcm, rate, transcript). A take that matches the script
+    ends it; otherwise the closer of the two is kept, and an empty retry never
+    throws away a first take that did have audio.
+    """
+    best = None
+    for _ in range(2):
+        pcm, rate, heard = take()
+        if not pcm:
+            continue
+        score = match(text, heard) if heard else 1.0
+        if best is None or score > best[2]:
+            best = (pcm, rate, score)
+        if score >= LIVE_MIN_MATCH:
+            break
+    if best is None:
+        return None
+    if best[2] < LIVE_MIN_MATCH:
+        G.warn(f"Live read drifted from the script ({best[2]:.0%} word "
+               f"match): \"{text[:60]}…\" — listen, or use --engine gemini")
+    return best[0], best[1]
+
+
 def synthesise_live(plan, args):
     """[(pcm, rate)] per chunk from a Gemini Live model, one session per read.
 
@@ -497,24 +539,12 @@ def synthesise_live(plan, args):
 
     def read_for(text, voice):
         def call(client, model):
-            best = None
-            for _ in range(2):
-                pcm, rate, heard = asyncio.run(
-                    live_take(client, types, model, text, voice, style))
-                if not pcm:
-                    return None
-                score = match(text, heard) if heard else 1.0
-                if best is None or score > best[2]:
-                    best = (pcm, rate, score)
-                if score >= LIVE_MIN_MATCH:
-                    break
-            if best[2] < LIVE_MIN_MATCH:
-                G.warn(f"Live read drifted from the script ({best[2]:.0%} word "
-                       f"match): \"{text[:60]}…\" — listen, or use --engine gemini")
-            return best[0], best[1]
+            return best_read(lambda: asyncio.run(
+                live_take(client, types, model, text, voice, style)), text)
         return call
 
-    chain = G.chain_for(args.model, LIVE_SEQUENCE) if args.model else list(LIVE_SEQUENCE)
+    primary = args.model or plan.get("model")
+    chain = G.chain_for(primary, LIVE_SEQUENCE) if primary else list(LIVE_SEQUENCE)
     takes, used = [], None
     for index, chunk in enumerate(plan["chunks"]):
         reads = ([(t["text"], plan["speakers"][t["speaker"]]) for t in chunk["turns"]]
@@ -560,15 +590,16 @@ def use_own_voice(src, out):
     src = Path(src).expanduser()
     if not src.is_file():
         G.die(f"no recording at {src}")
-    if out.suffix.lower() == ".wav":
-        to_wav(src, out)
-        seconds = seconds_of(out)
-    else:
-        with tempfile.TemporaryDirectory() as tmp:
-            seconds = seconds_of(to_wav(src, Path(tmp) / "own.wav"))
-        subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
-                        "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", str(RATE),
-                        str(out)], check=True)
+    # Convert into a scratch file first: `-o` may be the recording itself, and
+    # ffmpeg truncates its output before it has read the input.
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = to_wav(src, Path(tmp) / "own.wav")
+        seconds = seconds_of(wav)
+        if out.suffix.lower() == ".wav":
+            shutil.move(str(wav), str(out))
+        else:
+            subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin",
+                            "-y", "-i", str(wav), str(out)], check=True)
     # Not G.provenance: that sidecar says "generated-by", and this was not.
     Path(str(out) + ".txt").write_text(
         f"recorded-by: human (own voice, not synthesised)\n"
@@ -681,6 +712,10 @@ def main():
                  "saying the --consent-statement")
     if args.clone_from and args.engine != "gemini":
         ap.error("--clone-from speaks through Gemini TTS; drop --engine")
+    if args.clone_from and args.backend == "vertex":
+        # Never reroute biometric audio past a pinned backend.
+        ap.error("--clone-from uses the AI Studio voices API, which Vertex does not "
+                 "serve; drop --backend vertex or record with --own-voice")
     out = G.prepare(args.output)
     plan_path = out.with_suffix(".plan.json")
 
