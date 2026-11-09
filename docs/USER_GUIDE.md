@@ -272,7 +272,7 @@ Single-pass ImageMagick/libvips pipelines, responsive `<img srcset>` ladders, ne
 | `skills/raster/scripts/edit.py` | Single-invocation ImageMagick pipeline across one file or a folder | `-i <file/dir>`, `-o <file/dir>`, `--ops "trim,crop:16x9,resize:1600,round:16,shadow,border:2:#DADCE0,strip"` |
 | `skills/raster/scripts/ladder.py` | Generates multi-width (`480,960,1440`) multi-format (`webp,avif,png`) derivatives + `manifest.json` with ready-to-paste `<picture>`/`srcset` markup (never upscales) | `-i <img/dir>`, `-o <dir>`, `--widths 480,960,1440`, `--formats webp,png` |
 | `skills/raster/scripts/cutout.py` | Neural subject isolation via `rembg` (`birefnet-general`, `u2net`, `isnet-general-use`), optional tight trim, padding, and brand gradient backdrop | `-i <img/dir>`, `-o <png/dir>`, `--model birefnet-general`, `--backdrop hero`, `--pad 80`, `--shadow` |
-| `skills/raster/scripts/segment.py` | Two-stage Gemini object detection (`.segments.json` intermediate) + local SAM 2 mask refinement and video object tracking (`blur`, `pixelate`, `fill`, `erase`, `--cutout`) | `-i <img/mp4>`, `-q <description>`, `-o <out>`, `--op blur\|pixelate\|fill\|erase`, `--cutout <png>`, `--refine sam2`, `--from-json <json>` |
+| `skills/raster/scripts/segment.py` | Two-stage Gemini object detection (`.segments.json` intermediate) + local SAM 2 mask refinement and video object tracking (`blur`, `pixelate`, `fill`, `erase`, `inpaint` to remove an object by filling from its surroundings, `--cutout`) | `-i <img/mp4>`, `-q <description>`, `-o <out>`, `--op blur\|pixelate\|fill\|erase\|inpaint`, `--inpaint local\|gemini`, `--cutout <png>`, `--refine sam2`, `--from-json <json>` |
 
 #### Concrete Workflow
 
