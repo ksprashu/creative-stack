@@ -471,6 +471,18 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(self.kinds("key AlZzaSyFAKE_EXAMPLE_KEY_ 1234567"),
                          [("google-api-key", "AlZzaSyFAKE_EXAMPLE_KEY_ 1234567")])
 
+    def test_glue_keeps_cli_flags_and_lone_dashes_apart(self):
+        self.assertEqual(self.kinds("AIzaSyFAKE_EXAMPLE_KEY_1234567 --output x"),
+                         [("google-api-key", "AIzaSyFAKE_EXAMPLE_KEY_1234567")])
+        self.assertEqual(scan.glue("Run - my-service")[0], "Run - my-service")
+        self.assertEqual(scan.glue("KEY_ 12 x _y")[0], "KEY_12 x_y")
+
+    def test_ai_kind_never_keeps_the_label_text(self):
+        self.assertEqual(scan.ai_kind("API key AIzaSyFAKE_EXAMPLE"), "ai-secret")
+        self.assertEqual(scan.ai_kind("jane.doe@example.com email address"), "ai-email")
+        self.assertEqual(scan.ai_kind("Profile photo"), "ai-avatar")
+        self.assertEqual(scan.ai_kind("Jane Doe"), "ai-other")
+
     def test_labelled_values_blur_the_value_not_the_name(self):
         self.assertEqual(self.kinds("DB_PASSWORD=hunter2"), [("label", "hunter2")])
         self.assertEqual(self.kinds("Password: hunter2 x"), [("label", "hunter2 x")])

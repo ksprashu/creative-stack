@@ -71,6 +71,18 @@ AI_QUERY = ("anything that should not be published from a screenshot: faces, "
             "numbers, account or organisation switchers, QR codes, and any "
             "password, API key, token or other secret")
 
+# Checked in order, so "account email" is an email and "profile photo" an avatar.
+AI_KINDS = [
+    ("secret", ("key", "token", "password", "secret", "credential")),
+    ("email", ("email", "e-mail")),
+    ("phone", ("phone", "mobile")),
+    ("qr-code", ("qr",)),
+    ("avatar", ("avatar", "profile", "photo", "picture")),
+    ("face", ("face", "person", "people")),
+    ("account", ("account", "switcher", "picker", "organisation", "organization")),
+    ("name", ("name",)),
+]
+
 # I, l, 1 and | are the swap tesseract makes most in random strings.
 _I = "[Il1|]"
 KEY_RULES = [
@@ -211,14 +223,20 @@ def line_text(words):
 
 
 def glue(text):
-    """OCR splits a token at `_` and `-` ("KEY_ 1234"); drop those spaces.
+    """OCR splits a token after a `_` or `-` ("KEY_ 1234"), or before a `_`;
+    drop those spaces.
+
+    A space before `-` is kept: in a terminal that is a CLI flag
+    (`AIza... --output x`), not half a token. So is the space after a lone
+    dash ("Run - my-service").
 
     Returns the glued string and, for each of its characters plus the end,
     the matching offset in `text`, so a match maps back to the words."""
     out, where = [], []
     for i, ch in enumerate(text):
-        if ch == " " and 0 < i < len(text) - 1 and (
-                text[i - 1] in "_-" or text[i + 1] in "_-"):
+        if ch == " " and 1 < i < len(text) - 1 and (
+                (text[i - 1] in "_-" and text[i - 2] != " ")
+                or text[i + 1] == "_"):
             continue
         out.append(ch)
         where.append(i)
@@ -387,9 +405,23 @@ def ai_findings(path, model, backend):
     found = []
     for item in items:
         x0, y0, x1, y1 = segment.box_px(item["box_2d"], image.size)
-        found.append({"kind": f"ai: {item.get('label', 'match')}", "source": route,
-                      "preview": item.get("label", ""), "box": [x0, y0, x1 - x0, y1 - y0]})
+        kind = ai_kind(item.get("label", ""))
+        found.append({"kind": kind, "source": route, "preview": f"({kind})",
+                      "box": [x0, y0, x1 - x0, y1 - y0]})
     return found
+
+
+def ai_kind(label):
+    """A fixed category for Gemini's free-text label.
+
+    The label is model output about the very text being hidden, and it can
+    quote it ("API key AIzaSy..."). Only the category is ever printed or
+    written; the label itself is dropped."""
+    label = label.lower()
+    for kind, words in AI_KINDS:
+        if any(w in label for w in words):
+            return f"ai-{kind}"
+    return "ai-other"
 
 
 # ---------------------------------------------------------------- main ---
