@@ -281,6 +281,181 @@ class VoiceTest(unittest.TestCase):
         plan = voice.build_plan(script, Args(engine="gemini", voice=voice.SECOND_VOICE))
         self.assertEqual(plan["speakers"], {"A": voice.SECOND_VOICE, "B": voice.DEFAULT_VOICE})
 
+    def test_live_match_scores_paraphrase_low(self):
+        said = "Welcome to the build pipeline tour."
+        self.assertEqual(voice.match(said, "welcome to the build pipeline tour"), 1.0)
+        self.assertLess(voice.match(said, "Sure! Let me show you around the pipeline."),
+                        voice.LIVE_MIN_MATCH)
+
+    def test_cloned_plan_never_carries_a_voice_key(self):
+        plan = voice.build_plan("One.\n\nTwo.", Args(engine="gemini", clone_from="me.wav"))
+        self.assertTrue(plan["replicated"])
+        self.assertEqual(plan["voice"], voice.CLONED)
+        self.assertNotIn("voicekey", json.dumps(plan))
+
+    def test_cloning_refuses_a_dialogue(self):
+        with self.assertRaises(SystemExit):
+            voice.build_plan("A: hi\nB: hello", Args(engine="gemini", clone_from="me.wav"))
+
+    def test_custom_voice_pins_any_voices_api_id(self):
+        self.assertTrue(voice.custom_voice({"voice": "voice_abc"}))
+        self.assertTrue(voice.custom_voice({"speakers": {"A": "Kore", "B": "voicekey_x"}}))
+        self.assertTrue(voice.custom_voice({"voice": voice.CLONED, "replicated": True}))
+        self.assertFalse(voice.custom_voice({"voice": "Charon"}))
+
+    def test_best_read_keeps_a_good_take_when_the_retry_is_empty(self):
+        takes = iter([(b"\x01\x00", 24000, "something else entirely"), (b"", 24000, "")])
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(voice.best_read(lambda: next(takes), "the script text"),
+                             (b"\x01\x00", 24000))
+        self.assertIsNone(voice.best_read(lambda: (b"", 24000, ""), "x"))
+
+    def test_best_read_stops_at_a_faithful_take(self):
+        calls = []
+        def take():
+            calls.append(1)
+            return b"\x01\x00", 24000, "the script text"
+        self.assertEqual(voice.best_read(take, "The script text."), (b"\x01\x00", 24000))
+        self.assertEqual(len(calls), 1)
+
+    def test_own_voice_in_place_keeps_the_recording(self):
+        if not voice.G.hostenv.ffmpeg_bin("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "take.wav"
+            with wave.open(str(path), "wb") as w:
+                w.setnchannels(2)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(b"\x10\x00" * 2 * 48000)
+            with contextlib.redirect_stdout(io.StringIO()):
+                seconds = voice.use_own_voice(path, path)
+            self.assertAlmostEqual(seconds, 1.0, places=2)
+            with wave.open(str(path)) as w:
+                self.assertEqual((w.getnchannels(), w.getframerate()), (1, voice.RATE))
+
+    def test_live_take_reads_every_part_until_turn_complete(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        def part(data=None):
+            return NS(inline_data=NS(data=data, mime_type="audio/pcm;rate=24000") if data else None)
+
+        events = [
+            NS(server_content=None),
+            NS(server_content=NS(model_turn=NS(parts=[part(b"\x01\x00"), part(b"\x02\x00")]),
+                                 output_transcription=NS(text="Hello "), turn_complete=False)),
+            NS(server_content=NS(model_turn=None, output_transcription=NS(text="there"),
+                                 turn_complete=True)),
+            NS(server_content=NS(model_turn=NS(parts=[part(b"\xff\xff")]),
+                                 output_transcription=None, turn_complete=False)),
+        ]
+        sent = []
+
+        class Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def send_client_content(self, **kw):
+                sent.append(kw)
+
+            async def receive(self):
+                for event in events:
+                    yield event
+
+        client = NS(aio=NS(live=NS(connect=lambda model, config: Session())))
+        types = NS(**{n: (lambda **kw: NS(**kw)) for n in (
+            "LiveConnectConfig", "SpeechConfig", "VoiceConfig", "PrebuiltVoiceConfig",
+            "AudioTranscriptionConfig", "Content", "Part")})
+        pcm, rate, heard = asyncio.run(
+            voice.live_take(client, types, "m", "Hello there", "Puck", ""))
+        self.assertEqual((pcm, rate, heard), (b"\x01\x00\x02\x00", 24000, "Hello there"))
+        self.assertTrue(sent[0]["turn_complete"])
+
+    def test_human_marks_split_names_from_paragraphs(self):
+        self.assertEqual(voice.human_marks("Sam, 1,4"), ({"Sam"}, {1, 4}))
+        self.assertEqual(voice.human_marks(None), (set(), set()))
+
+    def test_human_speaker_gets_takes_and_frees_a_voice_slot(self):
+        script = "Sam: hi\nAna: hello\nBo: hey\nSam: bye"
+        plan = voice.build_plan(script, Args(engine="gemini", voices="Kore,Puck", human="Sam"),
+                                takes="chat.takes")
+        self.assertEqual(plan["speakers"], {"Sam": voice.HUMAN, "Ana": "Kore", "Bo": "Puck"})
+        audio = [t.get("audio") for t in plan["chunks"][0]["turns"]]
+        self.assertEqual(audio, ["chat.takes/01-Sam.wav", None, None, "chat.takes/04-Sam.wav"])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            voice.build_plan(script, Args(engine="gemini", human="Zed"))
+
+    def test_human_paragraphs_in_narration(self):
+        plan = voice.build_plan("One.\n\nTwo.\n\nThree.", Args(engine="gemini", human="2"),
+                                takes="t")
+        self.assertEqual([c.get("audio") for c in plan["chunks"]], [None, "t/02-narration.wav", None])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            voice.build_plan("One.", Args(engine="gemini", human="2"))
+
+    def test_split_human_leaves_one_voice_as_narration(self):
+        plan = {"speakers": {"Sam": voice.HUMAN, "Ana": "Kore"}, "chunks": [{"turns": [
+            {"speaker": "Sam", "text": "a", "audio": "t/01.wav"},
+            {"speaker": "Ana", "text": "b"}, {"speaker": "Ana", "text": "c"},
+            {"speaker": "Sam", "text": "d", "audio": "t/04.wav"}]}]}
+        synth, layout = voice.split_human(plan)
+        self.assertNotIn("speakers", synth)
+        self.assertEqual((synth["voice"], synth["chunks"]), ("Kore", [{"text": "b c"}]))
+        self.assertEqual([p[:2] for p in layout[0]],
+                         [("human", "t/01.wav"), ("tts", 0), ("human", "t/04.wav")])
+
+    def test_split_human_keeps_two_voices_as_dialogue(self):
+        plan = {"speakers": {"Sam": voice.HUMAN, "Ana": "Kore", "Bo": "Puck"},
+                "chunks": [{"turns": [{"speaker": "Ana", "text": "a"},
+                                      {"speaker": "Bo", "text": "b"}]},
+                           {"text": "x", "audio": "t/02.wav"}]}
+        synth, layout = voice.split_human(plan)
+        self.assertEqual(synth["speakers"], {"Ana": "Kore", "Bo": "Puck"})
+        self.assertEqual(len(synth["chunks"]), 1)
+        self.assertEqual([p[0] for pieces in layout for p in pieces], ["tts", "human"])
+
+    def test_cloud_input_keeps_style_out_of_the_transcript(self):
+        from types import SimpleNamespace as NS
+        tts = NS(**{n: (lambda **kw: kw) for n in (
+            "SynthesisInput", "VoiceSelectionParams", "MultiSpeakerVoiceConfig",
+            "MultispeakerPrebuiltVoice")})
+        plan = {"lang": "en-IN", "style": "warm", "voice": "Charon",
+                "speakers": {"Ana": "Kore", "Bo": "Puck"}}
+        text, chosen = voice.cloud_input(tts, {"text": "Hello."}, plan, "m")
+        self.assertEqual(text, {"text": "Hello.", "prompt": "warm"})
+        self.assertEqual(chosen, {"language_code": "en-IN", "name": "Charon", "model_name": "m"})
+        text, chosen = voice.cloud_input(
+            tts, {"turns": [{"speaker": "Ana", "text": "hi"}, {"speaker": "Bo", "text": "yo"}]},
+            {**plan, "style": ""}, "m")
+        self.assertEqual(text, {"text": "Ana: hi\nBo: yo"})
+        aliases = chosen["multi_speaker_voice_config"]["speaker_voice_configs"]
+        self.assertEqual([(a["speaker_alias"], a["speaker_id"]) for a in aliases],
+                         [("Ana", "Kore"), ("Bo", "Puck")])
+
+    def test_assemble_splices_takes_in_script_order(self):
+        if not voice.G.hostenv.ffmpeg_bin("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "t").mkdir()
+            with wave.open(str(Path(tmp) / "t" / "01-Sam.wav"), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(b"\x00\x10" * 4800)
+            # Saved as .wav in the plan; the take is found whatever its name says.
+            self.assertIsNotNone(voice.take_path(tmp, "t/01-Sam.m4a"))
+            layout = [[("human", "t/01-Sam.m4a", "Sam", "a"), ("tts", 0)]]
+            [(pcm, rate)] = voice.assemble(layout, [(b"\x01\x00" * 10, 24000)], tmp)
+            gap = int(24000 * voice.TURN_GAP)
+            self.assertEqual(rate, 24000)
+            self.assertEqual(len(pcm) // 2, 2400 + gap + 10)
+            self.assertTrue(pcm.endswith(b"\x01\x00" * 10))
+
 
 class SegmentTest(unittest.TestCase):
     def test_box_px_and_valid_box(self):
