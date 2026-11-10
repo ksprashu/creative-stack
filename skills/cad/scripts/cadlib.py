@@ -157,6 +157,7 @@ def analyze_mesh(triangles, bed_size=(256.0, 256.0, 256.0), max_overhang_deg=45.
     if not triangles:
         return {
             "triangles": 0,
+            "degenerate_triangles": 0,
             "watertight": False,
             "boundary_edges": 0,
             "non_manifold_edges": 0,
@@ -164,6 +165,7 @@ def analyze_mesh(triangles, bed_size=(256.0, 256.0, 256.0), max_overhang_deg=45.
             "inverted_normals": False,
             "bbox_mm": {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0], "size": [0.0, 0.0, 0.0]},
             "fits_bed": False,
+            "bed_mm": list(bed_size),
             "unit_warning": "mesh has zero triangles",
             "volume_cm3": 0.0,
             "area_mm2": 0.0,

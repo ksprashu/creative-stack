@@ -41,6 +41,7 @@ import analyze  # noqa: E402
 import autocut  # noqa: E402
 import cadlib  # noqa: E402
 import captions  # noqa: E402
+import check  # noqa: E402
 import convert  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
@@ -834,6 +835,25 @@ class CadKernelTest(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"build123d": fake_b123d}), \
                 contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             convert.export(Path("empty.3mf"), ".3mf", Path("out.stl"), ".stl", 0.01)
+        self.assertIn("no shapes found in empty.3mf", err.getvalue())
+
+    def test_empty_mesh_fails_check_without_key_error(self):
+        rep = cadlib.analyze_mesh([])
+        self.assertEqual(rep["bed_mm"], [256.0, 256.0, 256.0])
+        self.assertEqual(rep["degenerate_triangles"], 0)
+        failures, _ = check.evaluate(rep)
+        self.assertEqual(failures, ["mesh has zero triangles"])
+
+    def test_check_empty_3mf_dies_cleanly(self):
+        class EmptyMesher:
+            def read(self, _path):
+                return []
+
+        fake_b123d = mock.MagicMock(Mesher=EmptyMesher)
+        err = io.StringIO()
+        with mock.patch.dict(sys.modules, {"build123d": fake_b123d}), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            check.load_triangles(Path("empty.3mf"))
         self.assertIn("no shapes found in empty.3mf", err.getvalue())
 
     def test_binary_and_ascii_stl_parsing_and_closed_box_metrics(self):

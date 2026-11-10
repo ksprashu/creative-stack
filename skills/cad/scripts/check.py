@@ -49,6 +49,8 @@ def load_triangles(path):
         elif suffix == ".3mf":
             mesher = Mesher()
             shapes = mesher.read(str(path))
+            if not shapes:
+                C.die(f"no shapes found in {path}")
             from build123d import Compound
             export_stl(Compound(children=shapes) if len(shapes) > 1 else shapes[0], str(tmp_stl))
         else:
@@ -61,6 +63,9 @@ def load_triangles(path):
 def evaluate(report, expected_parts=1, allow_multipart=False):
     """Return (failures: list[str], warnings: list[str])."""
     failures, warnings = [], []
+    if not report["triangles"]:
+        # An empty mesh fails every other check for the same reason; report that reason once.
+        return ["mesh has zero triangles"], warnings
     if not report["watertight"]:
         failures.append(
             f"non-manifold mesh ({report['boundary_edges']} open boundary edge(s), "
