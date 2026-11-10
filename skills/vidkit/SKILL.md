@@ -14,7 +14,8 @@ Everything mechanical between hitting stop on the recorder and uploading the fil
 
 A 40-minute unedited screen capture becomes a tight, captioned, correctly-loud video with
 chapters and a poster frame — without opening an NLE. When the last 10% does need hand editing,
-hand Resolve a timeline instead of a flat file, with the source media still linked.
+hand Kdenlive (or any FCP7/EDL NLE) a linked timeline instead of a flat file, or render the MLT
+timeline headlessly via `melt`.
 
 Every stage writes a reviewable artefact (`segments.json`, `zoom.yaml`, `.srt`) before it writes
 pixels, so a bad automatic decision is a two-line edit rather than a re-run.
@@ -95,7 +96,7 @@ in the frame, and the motion detector will happily push in on them.
      -o out/with-lt.mp4 -p name="Ada Lovelace" -p role="Developer Advocate"
    python3 scripts/motion.py -t end-card -o out/end.mp4 \
      -p title="Thanks for watching" -p url="cloud.google.com/run"
-   python3 scripts/motion.py -t lower-third --alpha -o out/lt.mov -p name="Ada"  # for Resolve
+   python3 scripts/motion.py -t lower-third --alpha -o out/lt.mov -p name="Ada"  # for NLE overlay
    ```
    `.mov --alpha` is ProRes 4444 for an NLE, `.webm --alpha` is VP9 with alpha for the web.
    A new template is any HTML file there that links `motion.css` and `motion.js`.
@@ -106,8 +107,10 @@ in the frame, and the motion detector will happily push in on them.
    python3 scripts/publish.py -i out/captioned.mp4 -o out/publish --chapters chapters.txt
    ```
 
-6. **Or hand it to Resolve** instead of steps 3-5:
+6. **Or hand it to Kdenlive / MLT** (or any FCP7/EDL NLE) instead of steps 3-5:
    ```bash
+   python3 scripts/timeline.py -s out/cut.json -o out/edit.mlt --chapters chapters.txt
+   python3 scripts/timeline.py -s out/cut.json -o out/edit.mlt --render out/mlt.mp4
    python3 scripts/timeline.py -s out/cut.json -o out/edit.xml --chapters chapters.txt
    ```
 
@@ -168,8 +171,8 @@ python3 ../shot/scripts/frame.py -i out/publish/cloudrun-walkthrough-poster.png 
     `drawtext` are missing, and `need()` resolves the keg-only `ffmpeg-full` instead. On Linux
     the distro build already has them and `need()` returns the plain binary. Either way,
     `CREATIVE_STACK_FFMPEG` is the only supported override.
-*   **NEVER** name a `timeline.py` output `.fcpxml`. OpenTimelineIO writes FCP7 XMEML; Resolve
-    picks its parser from the extension and rejects the mismatch. Use `.xml`.
+*   **NEVER** name a `timeline.py` XML output `.fcpxml`. OpenTimelineIO writes FCP7 XMEML, not
+    Apple FCPXML; use `.mlt` for Kdenlive / `melt` or `.xml` for FCP7 XMEML.
 *   **NEVER** publish a terminal or console recording without `vidscan.py --check` on the
     final file. It only sees what OCR can read, so also watch the parts it cannot — a QR
     code, a face, an account picker.

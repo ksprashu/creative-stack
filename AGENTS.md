@@ -89,9 +89,8 @@ Do not re-discover these.
 *   ggml's `GGML_NATIVE=ON` emits an `-mcpu=native+nodotprod+…` string that GCC 13 on aarch64
     rejects, so `install/whisper-cpp.sh` retries with `-DGGML_NATIVE=OFF`.
 *   Debian renames binaries (`bat` → `batcat`). That is what multiple `provides` entries are for.
-*   DaVinci Resolve free **cannot** be scripted from an external process; on Linux Blackmagic
-    ships Studio only, so scripting always works there. `/vidkit` emits FCP7 XML (`.xml`, never
-    `.fcpxml` — OTIO writes XMEML and Resolve picks its parser from the extension).
+*   `/vidkit` emits MLT XML (`.mlt`) for Kdenlive / headless `melt`, plus FCP7 XML (`.xml`, never
+    `.fcpxml` — OTIO writes XMEML, not Apple FCPXML).
 *   **Global npm needs a writable prefix, set *before* the package stage.** Linux defaults to
     root-owned `/usr`, so every npm tool dies with `EACCES: mkdir '/usr/lib/node_modules/…'`.
     Fixing it in bootstrap's Node stage — which runs *after* packages — left both a clean Arch
@@ -143,10 +142,9 @@ Do not re-discover these.
     another package.
 *   **`manual` is a destination, not an install method.** It has no entry in `INSTALLERS` and
     must not have one — its payload is a download page for a human. The rescue loop in
-    `do_install` dispatched `fallback.kind` blindly and raised `KeyError` on Reaper and
-    DaVinci Resolve, aborting the whole install before the summary that would have named what
-    was missing. Any unknown kind now reports instead of raising: a route that cannot run is
-    one package's problem, never the run's.
+    `do_install` dispatched `fallback.kind` blindly and raised `KeyError` on Reaper, aborting the
+    whole install before the summary that would have named what was missing. Any unknown kind now
+    reports instead of raising: a route that cannot run is one package's problem, never the run's.
 *   **The cargo and uv routes compile C, so they need `packages.build_env()`.** Arch Linux ARM
     builds its `python` with distcc, so sysconfig hands every setuptools extension
     `CXX=/usr/lib/distcc/bin/g++`, a path that does not exist on the installed machine — manim

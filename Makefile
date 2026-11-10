@@ -95,7 +95,8 @@ demo: demo-clean  ## end-to-end smoke test — six artefacts in out/
 	$(PY) skills/vidkit/scripts/autocut.py -i fixtures/rec.mp4 -o $(OUT)/demo/cut.json \
 	  --render $(OUT)/demo/cut.mp4
 	@echo ""
-	@echo "▸ 4/6  cut → NLE timeline for Resolve"
+	@echo "▸ 4/6  cut → NLE timeline (Kdenlive MLT + FCP7 XML)"
+	$(PY) skills/vidkit/scripts/timeline.py -s $(OUT)/demo/cut.json -o $(OUT)/demo/edit.mlt
 	$(PY) skills/vidkit/scripts/timeline.py -s $(OUT)/demo/cut.json -o $(OUT)/demo/edit.xml
 	@echo ""
 	@echo "▸ 5/6  outline → branded deck"
@@ -110,7 +111,7 @@ demo: demo-clean  ## end-to-end smoke test — six artefacts in out/
 demo-verify:
 	@echo "======================================================================"
 	@fail=0; for f in $(OUT)/demo/shot.png $(OUT)/demo/annotated.png \
-	                 $(OUT)/demo/cut.mp4 $(OUT)/demo/edit.xml \
+	                 $(OUT)/demo/cut.mp4 $(OUT)/demo/edit.mlt $(OUT)/demo/edit.xml \
 	                 $(OUT)/demo/deck.md $(OUT)/demo/deck.pdf; do \
 	  if [ -s "$$f" ]; then \
 	    printf '  \033[32m✓\033[0m %-28s %s\n' "$$(basename $$f)" "$$(du -h $$f | cut -f1)"; \

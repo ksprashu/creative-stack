@@ -428,6 +428,11 @@ APP_BRIDGES = {
         "macos": ["/Applications/Loopback.app/Contents/MacOS/Loopback"],
         "linux": [],
     },
+    "kdenlive": {
+        "macos": ["/Applications/Kdenlive.app/Contents/MacOS/kdenlive"],
+        "linux": ["/usr/bin/kdenlive", "/usr/local/bin/kdenlive",
+                  "/var/lib/flatpak/exports/bin/org.kde.kdenlive"],
+    },
 }
 
 
@@ -443,32 +448,6 @@ def app_candidates(name):
 
 def find_app(name):
     return next((Path(p) for p in app_candidates(name) if Path(p).exists()), None)
-
-
-# ---------------------------------------------------------- davinci resolve ---
-
-def resolve_paths():
-    """(scripting_api_dir, fusionscript_lib, is_studio).
-
-    Resolve on Linux installs under /opt/resolve with an entirely different
-    layout to the macOS bundle, and the Studio licence lives elsewhere again.
-    """
-    if IS_MAC:
-        api = Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve"
-                   "/Developer/Scripting")
-        lib = Path("/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents"
-                   "/Libraries/Fusion/fusionscript.so")
-        studio = (Path("/Applications/DaVinci Resolve/DaVinci Resolve Studio.app").exists()
-                  or Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve"
-                          "/Resolve.lic").exists())
-        return api, lib, studio
-
-    api = Path("/opt/resolve/Developer/Scripting")
-    lib = Path("/opt/resolve/libs/Fusion/fusionscript.so")
-    # The Linux build ships Studio only (Blackmagic does not distribute the free
-    # edition for Linux), so a present install implies scripting works.
-    studio = api.exists()
-    return api, lib, studio
 
 
 def obs_config_dir():
@@ -857,7 +836,6 @@ def font_install_hint(family):
 # -------------------------------------------------------------------- misc ---
 
 def describe():
-    api, _, studio = resolve_paths()
     return {
         "platform": pretty_name(),
         "family": FAMILY,
@@ -868,7 +846,6 @@ def describe():
         "ffmpeg": ffmpeg_bin(),
         "chrome": chrome_path(),
         "bin_dir": str(bin_dir()),
-        "resolve": {"installed": api.exists(), "studio": studio},
         "apps": {n: str(find_app(n) or "") for n in APP_BRIDGES},
     }
 

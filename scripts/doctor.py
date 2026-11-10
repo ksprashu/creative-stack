@@ -55,7 +55,7 @@ TOOLS = {
     "diagram": ["dot", "d2", "plantuml", "mmdc"],
     "document": ["pandoc", "gs", "pdftoppm", "qpdf", "mutool", "typst", "tectonic"],
     "slides": ["marp", "presenterm"],
-    "video": ["ffmpeg", "ffprobe", "HandBrakeCLI", "mkvmerge", "yt-dlp", "auto-editor"],
+    "video": ["ffmpeg", "ffprobe", "melt", "HandBrakeCLI", "mkvmerge", "yt-dlp", "auto-editor"],
     "capture": ["vhs", "asciinema", "agg", "silicon", "termshot", "freeze", "anot8"],
     "audio": ["sox", "rubberband", "lame", "flac", "fluidsynth", "lilypond", "csound"],
     "speech": ["whisper-cli", "tesseract"],
@@ -81,10 +81,6 @@ REQUIRED_FILTERS = ["ass", "subtitles", "drawtext", "zoompan", "loudnorm",
 # failed its smoke test with `Permission denied: ''`.
 BRIDGES = {name: hostenv.find_app(name)
            for name in ("blender", "inkscape", "gimp-console")}
-
-RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
-RESOLVE_MODULES = RESOLVE_API / "Modules"
-
 
 GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
@@ -453,22 +449,6 @@ def check_ml(rep):
                          "segment.py --refine sam2")
 
 
-def check_resolve(rep):
-    if not RESOLVE_API.exists() and not hostenv.find_app("resolve"):
-        return rep.add("resolve", "install", "skip", "not installed")
-
-    # The external scripting API only works on Studio — free allows scripting
-    # from Resolve's own console only. Blackmagic ships Linux as Studio-only,
-    # so a Linux install implies scripting works.
-    is_studio = RESOLVE_IS_STUDIO
-    rep.add("resolve", "edition", "ok",
-            "Studio — external scripting available" if is_studio
-            else "Free — external scripting NOT available; /vidkit emits FCP7 XML")
-    rep.add("resolve", "scripting modules",
-            "ok" if RESOLVE_MODULES.exists() else "warn",
-            str(RESOLVE_MODULES) if RESOLVE_MODULES.exists() else "missing")
-
-
 def harnesses():
     """The harness table, or {} if it is unreadable.
 
@@ -511,7 +491,7 @@ def check_mcp(rep):
                     f"{mcp['path']} missing — run install_mcp.py")
             continue
         text = path.read_text()
-        names = [n for n in ("blender", "gimp", "resolve", "anot8") if f'"{n}"' in text]
+        names = [n for n in ("blender", "gimp", "anot8") if f'"{n}"' in text]
         seen = True
         rep.add("mcp", label, "ok" if names else "warn",
                 f"{mcp['path']}: {', '.join(names) or 'no servers declared'}")
@@ -581,7 +561,6 @@ def main():
     check_bridges(rep, args.quick)
     check_credentials(rep, args.quick)
     check_ml(rep)
-    check_resolve(rep)
     check_mcp(rep)
     check_skills(rep)
 

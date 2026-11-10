@@ -126,6 +126,9 @@ brew "mkvtoolnix"
 brew "yt-dlp"
 # silence / jump-cut detection
 brew "auto-editor"
+# MLT headless multi-track video renderer; powers Kdenlive and timeline.py
+# --render
+brew "mlt"
 
 # --------------------------------- capture ----------------------------------
 # scripted terminal recordings (.tape -> GIF/MP4)
@@ -202,6 +205,8 @@ cask "audio-hijack"
 cask "loopback"
 cask "supercollider"
 cask "sonic-pi"
+# FOSS multi-track NLE over MLT; opens timeline.py .mlt timelines natively
+cask "kdenlive"
 
 # ---------------------------------- fonts -----------------------------------
 cask "font-roboto"

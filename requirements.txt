@@ -11,8 +11,8 @@ rembg[cpu,cli]>=2.0.60        # background removal (ONNX, local). [cli] alone sh
 numpy>=1.26
 
 # --- video / timeline --------------------------------------------------------
-OpenTimelineIO>=0.17         # FCPXML / EDL emit for DaVinci Resolve finishing
-opentimelineio-plugins>=0.17 # FCPXML adapter lives here
+OpenTimelineIO>=0.17         # FCP7 XML / EDL / OTIO timeline interchange
+opentimelineio-plugins>=0.17 # FCP7 XML adapter lives here
 
 # --- audio -------------------------------------------------------------------
 pydub>=0.25

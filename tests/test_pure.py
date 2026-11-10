@@ -46,6 +46,7 @@ import scan  # noqa: E402
 import segment  # noqa: E402
 import session  # noqa: E402
 import sync_skills  # noqa: E402
+import timeline  # noqa: E402
 import vidscan  # noqa: E402
 import voice  # noqa: E402
 
@@ -659,6 +660,83 @@ class VidScanTest(unittest.TestCase):
         self.assertIn("chroma_radius=1:", graph)                   # tiny box stays legal
         self.assertIn("[base][b0]overlay=10:20:enable='between(t,1.0,3.5)'[v0];", graph)
         self.assertTrue(graph.rstrip().endswith("enable='between(t,0.0,2.0)'[vout]"))
+
+class TimelineMltAndFossManifestTest(unittest.TestCase):
+    def test_mlt_rate_handles_ntsc_and_integer_fps(self):
+        self.assertEqual(timeline.mlt_rate(29.97003), (30000, 1001))
+        self.assertEqual(timeline.mlt_rate(59.94), (60000, 1001))
+        self.assertEqual(timeline.mlt_rate(23.976), (24000, 1001))
+        self.assertEqual(timeline.mlt_rate(30.0), (30, 1))
+
+    def test_build_mlt_xml_writes_inclusive_frames_and_kdenlive_guides(self):
+        import xml.etree.ElementTree as ET
+
+        doc = {
+            "version": 1,
+            "source": "/tmp/demo & talk.mp4",
+            "duration": 10.0,
+            "fps": 30.0,
+            "width": 1920,
+            "height": 1080,
+            "segments": [
+                {"start": 0.0, "end": 2.0},   # 60 frames: in=0, out=59
+                {"start": 5.0, "end": 6.5},   # 45 frames: in=150, out=194
+            ],
+        }
+        markers = [(0.0, "Intro"), (2.0, "Cut & Demo")]
+        xml_text = timeline.build_mlt_xml(doc, "Walkthrough", markers)
+        root = ET.fromstring(xml_text)
+
+        self.assertEqual(root.tag, "mlt")
+        profile = root.find("profile")
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.attrib["frame_rate_num"], "30")
+        self.assertEqual(profile.attrib["frame_rate_den"], "1")
+        self.assertEqual(profile.attrib["width"], "1920")
+        self.assertEqual(profile.attrib["height"], "1080")
+
+        producer = root.find("producer")
+        self.assertIsNotNone(producer)
+        props = {p.attrib["name"]: p.text for p in producer.findall("property")}
+        self.assertEqual(props["resource"], "/tmp/demo & talk.mp4")
+
+        entries = root.findall("./playlist[@id='playlist0']/entry")
+        self.assertEqual(len(entries), 2)
+        self.assertEqual((entries[0].attrib["in"], entries[0].attrib["out"]), ("0", "59"))
+        self.assertEqual((entries[1].attrib["in"], entries[1].attrib["out"]), ("150", "194"))
+
+        tractor = root.find("./tractor[@id='tractor0']")
+        self.assertIsNotNone(tractor)
+        tprops = {p.attrib["name"]: p.text for p in tractor.findall("property")}
+        guides = json.loads(tprops["kdenlive:docproperties.guides"])
+        self.assertEqual(guides, [
+            {"pos": 0, "comment": "Intro", "type": 0},
+            {"pos": 60, "comment": "Cut & Demo", "type": 0},
+        ])
+
+    def test_melt_render_cmd_uses_libx264_aac_faststart(self):
+        cmd = timeline.melt_render_cmd("/usr/bin/melt", Path("out/edit.mlt"), Path("out/final.mp4"))
+        self.assertEqual(cmd[0], "/usr/bin/melt")
+        self.assertIn("out/edit.mlt", cmd)
+        self.assertIn("avformat:out/final.mp4", cmd)
+        self.assertIn("vcodec=libx264", cmd)
+        self.assertIn("acodec=aac", cmd)
+
+    def test_manifest_and_hostenv_drop_resolve_and_include_mlt_kdenlive(self):
+        manifest = json.loads((ROOT / "packages/manifest.json").read_text())
+        ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
+        self.assertNotIn("resolve", ids)
+        self.assertIn("mlt", ids)
+        self.assertIn("kdenlive", ids)
+        self.assertIn("kdenlive", hostenv.APP_BRIDGES)
+        self.assertNotIn("resolve", hostenv.describe())
+
+        claude_pkg = next(
+            p for g in manifest["groups"] for p in g["packages"] if p["id"] == "claude-code"
+        )
+        self.assertTrue(claude_pkg.get("optional"))
+        self.assertIn("proprietary", claude_pkg.get("note", "").lower())
+
 
 if __name__ == "__main__":
     unittest.main()

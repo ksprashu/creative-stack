@@ -87,15 +87,6 @@ SERVERS = {
         "stars": "219",
         "needs": "GIMP open with the gimp-mcp plug-in installed",
     },
-    "resolve": {
-        "kind": "git",
-        "repo": "samuelgursky/davinci-resolve-mcp",
-        "sha": "16e4a39f8754",
-        "entry": "src/server.py",
-        "stars": "2.9k",
-        "needs": "DaVinci Resolve STUDIO running (free edition cannot be scripted)",
-        "studio_only": True,
-    },
     # First-party (same author as this stack). An exact version, never
     # @latest: npx would otherwise fetch whatever was published last on every
     # cold start. Nothing to open first, so it is useful in any repo — see the
@@ -149,11 +140,6 @@ def run(cmd, **kw):
         return 124, "timed out"
     except OSError as exc:
         return 126, f"cannot run {cmd[0]}: {exc.strerror or exc}"
-
-
-def resolve_is_studio():
-    """Only Studio exposes the external scripting API the Resolve MCP needs."""
-    return hostenv.resolve_paths()[2]
 
 
 def portable(arg):
@@ -219,11 +205,6 @@ def build_config():
     servers = {}
 
     for name, spec in SERVERS.items():
-        if spec.get("studio_only") and not resolve_is_studio():
-            warn(f"{name}: skipped — Resolve Studio not detected")
-            info("Free edition cannot be scripted externally. /vidkit emits FCPXML instead.")
-            continue
-
         if spec["kind"] == "uvx":
             if not shutil.which("uvx"):
                 warn(f"{name}: uvx not found — install uv first")
