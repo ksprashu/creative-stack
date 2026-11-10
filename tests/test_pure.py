@@ -49,6 +49,12 @@ import sync_skills  # noqa: E402
 import vidscan  # noqa: E402
 import voice  # noqa: E402
 
+try:
+    import PIL  # noqa: F401
+    HAS_PIL = True
+except ImportError:                      # bare CI python: the image tests skip
+    HAS_PIL = False
+
 
 class Args(argparse.Namespace):
     """build_plan reads many flags; any not given here is None."""
@@ -314,6 +320,70 @@ class SegmentTest(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 segment.main()
         self.assertIn("no alpha channel", die.call_args.args[0])
+
+    def test_inpaint_is_an_op_that_follows_the_outline(self):
+        self.assertIn("inpaint", segment.OPS)
+        args = argparse.Namespace(op="inpaint", shape="auto")
+        self.assertFalse(segment.boxy(args))
+        args.shape = "box"
+        self.assertTrue(segment.boxy(args))
+
+    def test_op_grow_gives_inpaint_a_margin_only(self):
+        self.assertEqual(segment.op_grow("inpaint", 0), segment.INPAINT_MIN_GROW)
+        self.assertEqual(segment.op_grow("inpaint", 20), 20)
+        self.assertEqual(segment.op_grow("blur", 0), 0)
+        self.assertEqual(segment.op_grow(None, 3), 3)
+
+    def test_aspect_matches(self):
+        self.assertTrue(segment.aspect_matches((1000, 600), (1024, 614)))
+        self.assertFalse(segment.aspect_matches((1000, 600), (1024, 1024)))
+
+    def test_video_refuses_gemini_inpaint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "demo.mp4"
+            clip.write_bytes(b"")
+            record = Path(tmp) / "demo.segments.json"
+            record.write_text("{}")
+            argv = ["segment.py", "-i", str(clip), "--from-json", str(record),
+                    "--op", "inpaint", "--inpaint", "gemini",
+                    "-o", str(Path(tmp) / "out.mp4")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(segment.R, "die", side_effect=SystemExit) as die, \
+                    self.assertRaises(SystemExit):
+                segment.main()
+        self.assertIn("still images", die.call_args.args[0])
+
+    @unittest.skipUnless(HAS_PIL, "needs Pillow")
+    def test_inpaint_changes_only_the_masked_pixels(self):
+        from PIL import Image
+        base = Image.new("RGB", (8, 4), (10, 20, 30))
+        mask = Image.new("L", (8, 4), 0)
+        mask.paste(255, (2, 1, 4, 3))
+        red = lambda rgba, m: Image.new("RGBA", rgba.size, (255, 0, 0, 255))
+        out = segment.apply_op(base, mask, "inpaint", 0, None, 0, red).convert("RGB")
+        self.assertEqual(out.getpixel((2, 1)), (255, 0, 0))
+        self.assertEqual(out.getpixel((0, 0)), (10, 20, 30))
+        self.assertEqual(out.getpixel((5, 2)), (10, 20, 30))
+
+    @unittest.skipUnless(HAS_PIL, "needs Pillow")
+    def test_match_tone_removes_a_global_colour_drift(self):
+        from PIL import Image
+        base = Image.new("RGB", (40, 40), (100, 120, 140))
+        drifted = Image.new("RGB", (40, 40), (110, 115, 150))
+        mask = Image.new("L", (40, 40), 0)
+        mask.paste(255, (15, 15, 25, 25))
+        out = segment.match_tone(base, drifted, mask)
+        self.assertEqual(out.convert("RGB").getpixel((20, 20)), (100, 120, 140))
+
+    @unittest.skipUnless(HAS_PIL, "needs Pillow")
+    def test_keyed_paints_the_hole_flat(self):
+        from PIL import Image
+        base = Image.new("RGB", (6, 6), (1, 2, 3))
+        mask = Image.new("L", (6, 6), 0)
+        mask.paste(255, (0, 0, 3, 3))
+        out = segment.keyed(base, mask)
+        self.assertEqual(out.getpixel((1, 1)), segment.INPAINT_KEY)
+        self.assertEqual(out.getpixel((4, 4)), (1, 2, 3))
 
 
 class AudioRoutingAndKaraokeTest(unittest.TestCase):

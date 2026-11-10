@@ -9,6 +9,7 @@ google-cloud-texttospeech>=2.27 # Chirp 3 HD voices (voice.py --engine chirp)
 Pillow>=11.0
 rembg[cpu,cli]>=2.0.60        # background removal (ONNX, local). [cli] alone ships no onnxruntime
 numpy>=1.26
+opencv-python-headless>=4.10  # segment.py --op inpaint (Telea fill); headless: no GUI/Qt pulled in
 
 # --- video / timeline --------------------------------------------------------
 OpenTimelineIO>=0.17         # FCPXML / EDL emit for DaVinci Resolve finishing

@@ -62,7 +62,10 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    at `x: xmin/10 %`, `y: ymin/10 %`, `w: (xmax - xmin)/10 %`, `h: (ymax - ymin)/10 %` covers it.
 
    A solid redaction is a `box` with `"fillOpacity": 1`. To pixelate rather than blur, use
-   `/raster`'s `segment.py --query "..." --op pixelate -o out.png`.
+   `/raster`'s `segment.py --query "..." --op pixelate -o out.png`. To make clutter (a stray
+   cursor, a notification, a sticky note) disappear rather than show a redaction, use
+   `segment.py --op inpaint` — never for a secret, which a fill can echo; secrets get a blur
+   or solid box, then `scan.py --check`.
 
 3. **Frame** — composite onto the brand backdrop:
    ```bash

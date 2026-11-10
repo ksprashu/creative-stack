@@ -20,6 +20,7 @@ mean?" — "the mug on the left", "every face", "the API key in the terminal".
 
     python3 segment.py -i desk.png -q "the red mug" --cutout out/mug.png
     python3 segment.py -i desk.png -q "the laptop screen" --op blur -o out/redacted.png
+    python3 segment.py -i photo.jpg -q "the bin by the door" --op inpaint -o out/clean.jpg
     python3 segment.py -i shot.png -q "all faces" --op pixelate -o out/anon.png --refine sam2
     python3 segment.py -i desk.png --from-json out/desk.segments.json --mask out/mask.png
     python3 segment.py -i demo.mp4 -q "the email address" --op blur -o out/demo.mp4
@@ -36,6 +37,16 @@ Gemini's polygons are good to a few pixels, which is plenty for blur, pixelate
 and fill. For a cutout with a clean edge, `--refine sam2` hands each box to
 SAM 2 (Apache-2.0, runs locally on MPS/CUDA/CPU) and uses its mask instead. It
 needs torch and transformers: `uv pip install -r requirements-ml.txt`.
+
+`--op inpaint` removes the selection instead of hiding it: the region is
+filled in from its surroundings so the object is gone. `--inpaint local`
+(default) is OpenCV's Telea fill — offline, deterministic, and right for text,
+logos and small objects on flat or gently varying backgrounds. `--inpaint
+gemini` paints the region a flat colour, asks a Gemini image model to fill it,
+and pastes back only the region, so nothing outside the mask can change; use
+it for large objects on texture, where a local fill smears. Inpaint is not
+redaction: a fill can echo what was there. Hide secrets with blur, pixelate or
+fill and check them with /shot scan.py.
 
 A video input is always SAM 2: Gemini finds the objects on one frame (`--at`,
 seconds), SAM 2 tracks those boxes through every frame, and the edit is applied
@@ -68,7 +79,28 @@ SAM2_MODELS = {
     "base": "facebook/sam2.1-hiera-base-plus",
     "large": "facebook/sam2.1-hiera-large",
 }
-OPS = ("blur", "pixelate", "fill", "erase")
+OPS = ("blur", "pixelate", "fill", "erase", "inpaint")
+INPAINT_ENGINES = ("local", "gemini")
+# Gemini's polygons hug the object, and its anti-aliased edge sits just
+# outside them; a fill that starts on that edge drags the object's colour in.
+INPAINT_MIN_GROW = 4
+# Telea's neighbourhood, px. Wider smooths more and blurs edges it crosses.
+INPAINT_RADIUS = 5
+# The region Gemini is asked to fill, painted flat so the model sees a hole
+# rather than the object (or the secret) it is replacing.
+INPAINT_KEY = (255, 0, 255)
+INPAINT_PROMPT = (
+    "The magenta area in this image is a hole. Fill it so it matches its "
+    "surroundings: continue the background, textures, lines and lighting "
+    "through it, as if nothing had ever been there. Do not add any object or "
+    "text. Change nothing outside the magenta area, and keep the framing and "
+    "aspect ratio exactly as given.")
+# A returned image this far off the input's aspect ratio was reframed, and its
+# pixels would no longer line up with the mask.
+ASPECT_TOLERANCE = 0.02
+# Width, px, of the band around the hole used to match Gemini's tone to the
+# original's (match_tone).
+INPAINT_RING = 12
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 # SAM 2 works at 1024px internally; decoding larger only costs memory.
 TRACK_MAX_SIDE = 1024
@@ -232,6 +264,11 @@ def boxy(args):
     return args.shape == "box" or (args.shape == "auto" and args.op in HIDING_OPS)
 
 
+def op_grow(op, grow):
+    """Pixels to dilate the mask by: inpaint always takes a small margin."""
+    return max(grow, INPAINT_MIN_GROW) if op == "inpaint" else grow
+
+
 def union(masks, size):
     from PIL import Image, ImageChops                    # noqa: PLC0415
     out = Image.new("L", size, 0)
@@ -242,10 +279,20 @@ def union(masks, size):
 
 # ---------------------------------------------------------------- ops ---
 
-def apply_op(image, mask, op, strength, colour, feather):
+def apply_op(image, mask, op, strength, colour, feather, filler=None):
+    """`filler(rgba, mask)` fills the hole for inpaint; see inpaint_filler."""
     from PIL import Image, ImageFilter                   # noqa: PLC0415
 
     base = image.convert("RGBA")
+    if op == "inpaint":
+        # The fill sees the hard mask; only the paste back is feathered.
+        edited = (filler or inpaint_local)(base, mask)
+        # Paste over every pixel the fill covered; a soft edge would blend the
+        # object's own colour back in. --feather softens it on purpose.
+        mask = mask.convert("L").point(lambda v: 255 if v else 0)
+        if feather:
+            mask = mask.filter(ImageFilter.GaussianBlur(feather))
+        return Image.composite(edited, base, mask)
     if feather:
         mask = mask.filter(ImageFilter.GaussianBlur(feather))
     if op == "erase":
@@ -269,6 +316,97 @@ def apply_op(image, mask, op, strength, colour, feather):
     else:                                                # fill
         edited = Image.new("RGBA", base.size, colour)
     return Image.composite(edited, base, mask)
+
+
+def inpaint_local(base, mask):
+    """OpenCV's Telea fill of `mask` in an RGBA image. Alpha is kept as is."""
+    try:
+        import cv2                                       # noqa: PLC0415
+    except ImportError:
+        R.die("--op inpaint needs OpenCV. Run scripts/bootstrap.sh, or:\n"
+              f"  uv pip install --python {R.REPO_ROOT}/.venv/bin/python "
+              "opencv-python-headless")
+    import numpy as np                                   # noqa: PLC0415
+    from PIL import Image                                # noqa: PLC0415
+
+    rgb = np.asarray(base.convert("RGB"))
+    # Any coverage is hole: a soft edge (video masks are upscaled bilinear)
+    # left out of the fill would be the object's own colour, ringing the patch.
+    hole = (np.asarray(mask.convert("L")) > 0).astype(np.uint8) * 255
+    filled = Image.fromarray(cv2.inpaint(rgb, hole, INPAINT_RADIUS, cv2.INPAINT_TELEA))
+    filled.putalpha(base.getchannel("A"))
+    return filled
+
+
+def aspect_matches(a, b, tolerance=ASPECT_TOLERANCE):
+    """True when sizes `a` and `b` have the same aspect ratio, near enough."""
+    return abs(a[0] / a[1] - b[0] / b[1]) <= tolerance * a[0] / a[1]
+
+
+def keyed(base, mask):
+    """The image Gemini sees: `base` with the hole painted INPAINT_KEY."""
+    from PIL import Image                                # noqa: PLC0415
+    rgb = base.convert("RGB")
+    rgb.paste(Image.new("RGB", rgb.size, INPAINT_KEY), (0, 0),
+              mask.convert("L").point(lambda v: 255 if v > 127 else 0))
+    return rgb
+
+
+def inpaint_gemini(base, mask, model, backend):
+    """A Gemini image model's fill of `mask`, at `base`'s size.
+
+    The model redraws the whole frame, so only the masked region of its answer
+    is used (apply_op composites it); everything else stays the original."""
+    from PIL import Image                                # noqa: PLC0415
+    import image as artgen                               # noqa: PLC0415  artgen/scripts/image.py
+    _, types = genailib.load_genai()
+
+    buf = io.BytesIO()
+    keyed(base, mask).save(buf, "PNG")
+    part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
+
+    def call(client, name):
+        resp = client.models.generate_content(model=name,
+                                              contents=[part, INPAINT_PROMPT])
+        return artgen._image_bytes(resp)
+
+    chain = genailib.chain_for(model, artgen.MODEL_SEQUENCE)
+    data, used, route = genailib.attempt(chain, call, prefer=backend)
+    print(f"  {DIM}filled by {route}/{used}{RESET}")
+    out = Image.open(io.BytesIO(data)).convert("RGBA")
+    if not aspect_matches(base.size, out.size):
+        R.die(f"{used} returned {out.width}x{out.height} for a "
+              f"{base.width}x{base.height} image, so its pixels no longer line "
+              "up with the mask — retry, or use --inpaint local")
+    out = match_tone(base, out.resize(base.size, Image.LANCZOS), mask)
+    out.putalpha(base.getchannel("A"))
+    return out
+
+
+def match_tone(base, fill, mask, ring=INPAINT_RING):
+    """`fill` shifted so a band just outside `mask` matches `base` there.
+
+    An image model redraws the whole frame and drifts its colour and exposure
+    a little; pasted back as is, the hole shows as a patch of the wrong tone."""
+    import numpy as np                                   # noqa: PLC0415
+    from PIL import Image, ImageFilter                   # noqa: PLC0415
+
+    hard = mask.convert("L").point(lambda v: 255 if v > 127 else 0)
+    band = np.asarray(hard.filter(ImageFilter.MaxFilter(ring * 2 + 1))) > np.asarray(hard)
+    if not band.any():
+        return fill.convert("RGBA")
+    src = np.asarray(base.convert("RGB"), np.float32)
+    out = np.asarray(fill.convert("RGB"), np.float32)
+    shift = src[band].mean(axis=0) - out[band].mean(axis=0)
+    return Image.fromarray(np.clip(out + shift, 0, 255).astype(np.uint8)).convert("RGBA")
+
+
+def inpaint_filler(args):
+    """The fill function apply_op uses for --op inpaint."""
+    if args.inpaint == "gemini":
+        return lambda base, mask: inpaint_gemini(base, mask, args.image_model,
+                                                 args.backend)
+    return inpaint_local
 
 
 def parse_colour(spec):
@@ -403,6 +541,10 @@ def process_video(args, src, record):
     if args.op == "erase" or args.cutout:
         R.die("video output has no alpha channel here — use --op blur, "
               "pixelate or fill, or --mask for a matte")
+    if args.op == "inpaint" and args.inpaint == "gemini":
+        # One image call per frame is slow and costly, and each frame would be
+        # invented afresh, so the fill would flicker.
+        R.die("--inpaint gemini is for still images; video uses --inpaint local")
     import numpy as np                                   # noqa: PLC0415
     from PIL import Image, ImageFilter                   # noqa: PLC0415
     width, height, fps = video_meta(src)
@@ -463,6 +605,7 @@ def process_video(args, src, record):
          "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
          "-movflags", "+faststart", str(target)], stdin=subprocess.PIPE)
     colour = parse_colour(args.colour)
+    grow, filler = op_grow(args.op, args.grow), inpaint_filler(args)
     frame_bytes = width * height * 3
     try:
         for i in range(len(masks)):
@@ -474,11 +617,11 @@ def process_video(args, src, record):
                 (width, height), Image.BILINEAR)
             if boxy(args):
                 mask = mask.point(lambda v: 255 if v else 0)  # no soft box edge
-            if args.grow > 0:
-                mask = mask.filter(ImageFilter.MaxFilter(args.grow * 2 + 1))
+            if grow > 0:
+                mask = mask.filter(ImageFilter.MaxFilter(grow * 2 + 1))
             if args.op:
                 frame = apply_op(frame, mask, args.op, args.strength, colour,
-                                 args.feather).convert("RGB")
+                                 args.feather, filler).convert("RGB")
             else:
                 frame = mask.convert("RGB")
             writer.stdin.write(frame.tobytes())
@@ -499,6 +642,12 @@ def process_video(args, src, record):
 
 
 # --------------------------------------------------------------- main ---
+
+def image_models():
+    """/artgen's image model chain, best first: one list for the whole stack."""
+    import image as artgen                               # noqa: PLC0415  artgen/scripts/image.py
+    return artgen.MODEL_SEQUENCE
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -525,6 +674,11 @@ def main():
                          "fill (an outline can still be read), mask otherwise")
     ap.add_argument("--grow", type=int, default=0,
                     help="dilate the mask by N px — redaction wants a margin")
+    ap.add_argument("--inpaint", choices=INPAINT_ENGINES, default="local",
+                    help="--op inpaint fill: local = OpenCV, offline (default); "
+                         "gemini = image model, for large objects on texture")
+    ap.add_argument("--image-model", default=image_models()[0],
+                    help="Gemini image model for --inpaint gemini")
     ap.add_argument("--at", type=float, default=0,
                     help="video: second at which to find the objects (default 0)")
     ap.add_argument("--model", default=DEFAULT_MODEL)
@@ -584,8 +738,10 @@ def main():
     if not items:
         R.die("nothing matched — try a broader --query")
 
+    grow = op_grow(args.op, args.grow)
+
     def grown(m):
-        return m.filter(ImageFilter.MaxFilter(args.grow * 2 + 1)) if args.grow > 0 else m
+        return m.filter(ImageFilter.MaxFilter(grow * 2 + 1)) if grow > 0 else m
 
     if not (args.mask or args.cutout or args.op):
         return 0                                         # --json only: review first
@@ -618,7 +774,8 @@ def main():
         save(cut.crop(bbox) if bbox else cut, args.cutout)
     if args.op:
         result = apply_op(image, op_mask, args.op, args.strength,
-                          parse_colour(args.colour), args.feather)
+                          parse_colour(args.colour), args.feather,
+                          inpaint_filler(args))
         if Path(args.output).suffix.lower() in (".jpg", ".jpeg"):
             result = result.convert("RGB")
         save(result, args.output)

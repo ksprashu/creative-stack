@@ -90,6 +90,7 @@ being a pipeline.
    python3 scripts/segment.py -i desk.png -q "the red mug" --cutout out/mug.png --refine sam2
    python3 scripts/segment.py -i shot.png -q "the API key" --op fill -o out/safe.png --grow 8
    python3 scripts/segment.py -i demo.mp4 -q "the email address" --at 2 --op blur -o out/demo.mp4
+   python3 scripts/segment.py -i photo.jpg -q "the bin by the door" --op inpaint -o out/clean.jpg
    ```
 
    Gemini finds the matches and writes `<output>.segments.json` (box and polygon per match,
@@ -98,6 +99,15 @@ being a pipeline.
    `erase` (to transparency); `--mask` writes the matte itself. Blur, pixelate and fill cover
    each match's whole box by default (`--shape mask` to follow the outline), and pixelate never
    uses blocks smaller than half the region — a word's outline is often enough to read it.
+
+   `--op inpaint` **removes** the selection rather than hiding it: the region is filled from its
+   surroundings, following the outline grown by at least 4px. `--inpaint local` (default) is
+   OpenCV's Telea fill: offline and deterministic, right for text, logos, stray cursors and
+   small objects on flat or gently varying backgrounds, and it also runs per frame on video.
+   `--inpaint gemini` paints the region magenta (the model never sees what was there), asks
+   the `/artgen` image model to fill the hole, tone-matches the answer to a band around it and
+   pastes back only the region, so nothing outside the mask moves. Use it for large objects on
+   texture, where a local fill smears; it is stills only.
 
    Gemini's polygons are fine for blur and fill. For a cutout edge, `--refine sam2` hands each
    box to SAM 2 locally. **Video is always SAM 2**: objects are found on the frame at `--at`
@@ -166,6 +176,10 @@ redacts tokens. `/raster` is the batch pass afterwards.
     leaves the machine — that is the entire reason it is the tool here rather than an API.
 *   **NEVER** pixelate or blur a secret that has to stay secret. Both keep some of the
     original signal and both have been reversed in public; `--op fill` keeps none.
+*   **NEVER** use `--op inpaint` to redact. It is for removing clutter, not secrets: a fill
+    can carry the original's colour and shape into the hole, and nothing checks that it
+    didn't. Hide secrets with `fill` (or blur, with the caveat above) and re-check with
+    `/shot`'s `scan.py --check`.
 *   **NEVER** trust `segment.py` as the only redaction pass on something going public. A
     description can miss a second occurrence; `/shot` redacts by pattern, and the
     `.segments.json` is there to be read before the image ships.
