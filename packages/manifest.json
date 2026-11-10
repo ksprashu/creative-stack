@@ -19,17 +19,16 @@
     "  optional  true = a failure is a warning, not an error",
     "  early     true = sort to the front of the install list. Only matters on",
     "            the one-at-a-time retry pass, where it wins a race against a",
-    "            dependency resolver (see jack) — not for ordering one package",
+    "            dependency resolver (see jack) \u2014 not for ordering one package",
     "            ahead of another.",
     "",
     "Arch moves packages between extra and the AUR over time. scripts/packages.py",
     "treats every name as a hint: repo -> AUR -> fallback, and reports what it",
     "actually used. A stale name degrades to a warning, never a failed bootstrap."
   ],
-
   "npm_allow_scripts$comment": [
     "npm 12 does not run install scripts unless the package is named here, and",
-    "it does not fail when it skips one — `npm install` prints 'added 2 packages'",
+    "it does not fail when it skips one \u2014 `npm install` prints 'added 2 packages'",
     "and exits 0 having left a package that cannot run. @anthropic-ai/claude-code",
     "is the visible case: its postinstall hardlinks the 240MB platform-native",
     "binary over a stub whose only job is to explain that the postinstall did not",
@@ -38,7 +37,7 @@
     "An explicit list, not a blanket opt-in: allowing scripts is allowing",
     "arbitrary code at install time, so each name is here because a tool in this",
     "manifest does not work without it. Transitive dependencies have to be named",
-    "too — npm matches the package running the script, not the one we asked for.",
+    "too \u2014 npm matches the package running the script, not the one we asked for.",
     "packages.py warns when npm reports blocking something absent from this list."
   ],
   "npm_allow_scripts": [
@@ -47,7 +46,6 @@
     "@github/keytar",
     "puppeteer"
   ],
-
   "groups": [
     {
       "name": "base",
@@ -127,7 +125,7 @@
           "brew": "python@3.13",
           "arch": "python",
           "debian": "python3 python3-venv python3-pip",
-          "note": "the headers live in source-build-deps, not here — `provides: python3` is already satisfied on every machine that can run this script, so this entry resolves to `have` and its package list is never installed."
+          "note": "the headers live in source-build-deps, not here \u2014 `provides: python3` is already satisfied on every machine that can run this script, so this entry resolves to `have` and its package list is never installed."
         },
         {
           "id": "libsecret",
@@ -440,7 +438,7 @@
             "kind": "source",
             "name": "pandoc"
           },
-          "note": "hard-required by /deck and the document skills. pandoc is Haskell, so the smaller distro ports do not carry it — Arch Linux ARM has neither pandoc-cli nor pandoc-bin (x86_64 only). The fallback installs upstream's static release tarball, which is dependency-free on every Linux."
+          "note": "hard-required by /deck and the document skills. pandoc is Haskell, so the smaller distro ports do not carry it \u2014 Arch Linux ARM has neither pandoc-cli nor pandoc-bin (x86_64 only). The fallback installs upstream's static release tarball, which is dependency-free on every Linux."
         },
         {
           "id": "ghostscript",
@@ -623,7 +621,7 @@
           "aur": "handbrake-cli",
           "debian": "handbrake-cli",
           "optional": true,
-          "note": "encode ladders / device presets. Convenience over ffmpeg, never the only route — /vidkit encodes with ffmpeg. Absent on Arch Linux ARM (x86_64 extra only), which is a warning and nothing more."
+          "note": "encode ladders / device presets. Convenience over ffmpeg, never the only route \u2014 /vidkit encodes with ffmpeg. Absent on Arch Linux ARM (x86_64 extra only), which is a warning and nothing more."
         },
         {
           "id": "mkvtoolnix",
@@ -663,6 +661,17 @@
             "name": "auto-editor"
           },
           "note": "silence / jump-cut detection"
+        },
+        {
+          "id": "mlt",
+          "provides": [
+            "melt"
+          ],
+          "brew": "mlt",
+          "arch": "mlt",
+          "debian": "melt",
+          "optional": true,
+          "note": "MLT headless multi-track video renderer; powers Kdenlive and timeline.py --render"
         }
       ]
     },
@@ -783,7 +792,7 @@
             "kind": "npm",
             "name": "@ksprashu/anot8"
           },
-          "note": "screenshot callouts from a JSON spec, rendered headlessly with pixel bounds back for a visual check — /shot's annotator, plus a stdio MCP server"
+          "note": "screenshot callouts from a JSON spec, rendered headlessly with pixel bounds back for a visual check \u2014 /shot's annotator, plus a stdio MCP server"
         },
         {
           "id": "keystroke-display",
@@ -940,7 +949,7 @@
           "arch": "pipewire-jack",
           "debian": "libjack-jackd2-dev",
           "optional": true,
-          "note": "Reaper/SuperCollider audio backend on Linux. On Arch `jack` is a virtual package with two providers, and under --noconfirm pacman takes provider 1, jack2, without asking — so whoever pulls ffmpeg first chooses for everyone, and jack2 then conflicts with this entry. In the batched install that is harmless, because naming pipewire-jack in the same transaction settles the virtual. `early` is for the pass after a batch fails, where packages go in one at a time in list order: there, gifski in the image group reaches ffmpeg long before audio does. Sorting this to the front means the choice is already made."
+          "note": "Reaper/SuperCollider audio backend on Linux. On Arch `jack` is a virtual package with two providers, and under --noconfirm pacman takes provider 1, jack2, without asking \u2014 so whoever pulls ffmpeg first chooses for everyone, and jack2 then conflicts with this entry. In the batched install that is harmless, because naming pipewire-jack in the same transaction settles the virtual. `early` is for the pass after a batch fails, where packages go in one at a time in list order: there, gifski in the image group reaches ffmpeg long before audio does. Sorting this to the front means the choice is already made."
         },
         {
           "id": "switchaudio-osx",
@@ -1205,23 +1214,34 @@
           "optional": true
         },
         {
-          "id": "resolve",
-          "mac_app": "DaVinci Resolve",
+          "id": "kdenlive",
+          "mac_app": "Kdenlive.app",
           "provides": [
-            "resolve"
+            "kdenlive"
           ],
-          "brew": null,
-          "arch": null,
-          "aur": "davinci-resolve",
-          "debian": null,
-          "fallback": {
-            "kind": "manual",
-            "name": "https://www.blackmagicdesign.com/products/davinciresolve"
-          },
+          "brew": "kdenlive",
+          "cask": true,
+          "arch": "kdenlive",
+          "debian": "kdenlive",
+          "gui": true,
+          "optional": true,
+          "note": "FOSS multi-track NLE over MLT; opens timeline.py .mlt timelines natively"
+        },
+        {
+          "id": "freecad",
+          "mac_app": "FreeCAD.app",
+          "provides": [
+            "freecadcmd",
+            "freecad"
+          ],
+          "brew": "freecad",
+          "cask": true,
+          "arch": "freecad",
+          "debian": "freecad",
           "gui": true,
           "optional": true,
           "heavy": true,
-          "note": "no Homebrew cask \u2014 Blackmagic gates downloads behind a form. The Linux build is Studio-only, so external scripting works there."
+          "note": "FOSS parametric B-rep CAD; headless freecadcmd converts .fcstd and inspects STEP"
         }
       ]
     },
@@ -1250,7 +1270,7 @@
             "name": "googlefonts/RobotoMono"
           },
           "optional": true,
-          "note": "Debian's fonts-roboto is a 2017 snapshot of the proportional family only — it installs cleanly and leaves no Roboto Mono, which fc-list then reports as missing. Upstream's repo carries the built ttf/otf on its default branch."
+          "note": "Debian's fonts-roboto is a 2017 snapshot of the proportional family only \u2014 it installs cleanly and leaves no Roboto Mono, which fc-list then reports as missing. Upstream's repo carries the built ttf/otf on its default branch."
         },
         {
           "id": "font-inter",
@@ -1317,7 +1337,7 @@
           },
           "check": "claude --version",
           "optional": true,
-          "note": "Claude Code CLI \u2014 reads ~/.claude/skills. `check` rather than bare presence because the npm package is a thin wrapper around a 240MB platform-native optional dependency: when that download fails the postinstall leaves a shebang-less stub at bin/claude.exe that `which` is perfectly happy with. Running it is the only way to tell, and it makes the post-install fallback re-run npm instead of reporting a tool that cannot start."
+          "note": "Claude Code CLI \u2014 reads ~/.claude/skills. Proprietary closed-source CLI (kept optional for ~/.claude/skills users; codex and gemini-cli are Apache-2.0). `check` rather than bare presence because the npm package is a thin wrapper around a 240MB platform-native optional dependency: when that download fails the postinstall leaves a shebang-less stub at bin/claude.exe that `which` is perfectly happy with. Running it is the only way to tell, and it makes the post-install fallback re-run npm instead of reporting a tool that cannot start."
         },
         {
           "id": "codex",

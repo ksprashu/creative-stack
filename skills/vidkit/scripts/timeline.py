@@ -13,38 +13,157 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Hand the automated cut over to a real NLE.
+"""Hand the automated cut over to Kdenlive / MLT (or any FCP7/EDL NLE).
 
 ffmpeg is right for the mechanical 90% — silence, captions, encoding — and
 wrong for the last 10%, where you want to see the waveform and nudge a cut by
-two frames. This turns segments.json into a timeline DaVinci Resolve, Premiere
-or Final Cut can open, with the source media still linked.
+two frames. This turns segments.json into a multi-track MLT timeline Kdenlive
+(and Shotcut) can open directly or `melt` can render headlessly, plus FCP7 XML
+and EDL for external NLEs, with the source media still linked.
 
-    python3 timeline.py -s out/cut.json -o out/edit.xml     # FCP7 XML
-    python3 timeline.py -s out/cut.json -o out/edit.edl     # CMX 3600
+    python3 timeline.py -s out/cut.json -o out/edit.mlt                   # Kdenlive / MLT XML
+    python3 timeline.py -s out/cut.json -o out/edit.mlt --render out.mp4  # + headless melt render
+    python3 timeline.py -s out/cut.json -o out/edit.xml                   # FCP7 XML
+    python3 timeline.py -s out/cut.json -o out/edit.edl                   # CMX 3600
 
 Markers land on the timeline at every point where a long pause was removed —
 in a recorded walkthrough those are almost always the topic changes, so they
 are the right starting point for chapters.
 
-Note on the XML flavour: OpenTimelineIO writes **FCP7 XMEML**, not Apple's
-newer FCPXML, so the file must be named `.xml`. Resolve and Premiere both read
-it; naming it `.fcpxml` makes Resolve try the wrong parser and reject it.
-
-Resolve: File ▸ Import ▸ Timeline ▸ Pre-Conformed EDL / AAF / XML. The free
-edition imports all three; only *scripting* Resolve needs Studio.
+Note on FCP7 XML: OpenTimelineIO writes **FCP7 XMEML**, not Apple's newer
+FCPXML, so an XML output must be named `.xml` rather than `.fcpxml`.
 """
 
 import argparse
+import json
+import math
 import sys
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from vidlib import die, hms, read_segments
+from vidlib import die, hms, need, read_segments, run
+import hostenv  # noqa: E402
 
 # AAF is deliberately absent: OpenTimelineIO's AAF adapter can only *write*
 # clips that carry a SourceMobID it read from an existing AAF, so a timeline
 # built from scratch fails with "Cannot find mob ID for clip".
-FORMATS = {"xml": "fcp_xml", "edl": "cmx_3600", "otio": "otio_json"}
+OTIO_FORMATS = {"xml": "fcp_xml", "edl": "cmx_3600", "otio": "otio_json"}
+MLT_FORMATS = {"mlt", "kdenlive"}
+FORMATS = {**OTIO_FORMATS, "mlt": "mlt", "kdenlive": "mlt"}
+
+
+def mlt_rate(fps):
+    """Return (frame_rate_num, frame_rate_den) for MLT profiles."""
+    fps = float(fps or 30.0)
+    for num, den in ((24000, 1001), (30000, 1001), (60000, 1001)):
+        if abs(fps - (num / den)) < 0.01:
+            return num, den
+    if abs(fps - round(fps)) < 1e-3:
+        return max(1, int(round(fps))), 1
+    scaled = max(1, int(round(fps * 1000)))
+    divisor = math.gcd(scaled, 1000)
+    return scaled // divisor, 1000 // divisor
+
+
+def build_mlt_xml(doc, name, markers):
+    """Build standard MLT XML (opens natively in Kdenlive/Shotcut; renders via melt)."""
+    rate_num, rate_den = mlt_rate(doc.get("fps") or 30.0)
+    fps = rate_num / rate_den
+    width = int(doc.get("width") or 1920)
+    height = int(doc.get("height") or 1080)
+    dar_gcd = math.gcd(width, height) or 1
+
+    duration_s = float(doc.get("duration") or 0.0)
+    if duration_s <= 0.0 and doc.get("segments"):
+        duration_s = max(float(s["end"]) for s in doc["segments"])
+    source_frames = max(1, int(round(duration_s * fps)))
+
+    root = ET.Element("mlt", {
+        "LC_NUMERIC": "C",
+        "version": "7.0.0",
+        "title": name,
+        "producer": "main_bin",
+    })
+    ET.SubElement(root, "profile", {
+        "description": "automatic",
+        "width": str(width),
+        "height": str(height),
+        "progressive": "1",
+        "sample_aspect_num": "1",
+        "sample_aspect_den": "1",
+        "display_aspect_num": str(width // dar_gcd),
+        "display_aspect_den": str(height // dar_gcd),
+        "frame_rate_num": str(rate_num),
+        "frame_rate_den": str(rate_den),
+        "colorspace": "709",
+    })
+
+    producer = ET.SubElement(root, "producer", {
+        "id": "producer0",
+        "in": "0",
+        "out": str(source_frames - 1),
+    })
+    res_prop = ET.SubElement(producer, "property", {"name": "resource"})
+    res_prop.text = str(doc["source"])
+
+    main_bin = ET.SubElement(root, "playlist", {"id": "main_bin"})
+    retain = ET.SubElement(main_bin, "property", {"name": "xml_retain"})
+    retain.text = "1"
+    ET.SubElement(main_bin, "entry", {
+        "producer": "producer0",
+        "in": "0",
+        "out": str(source_frames - 1),
+    })
+
+    playlist = ET.SubElement(root, "playlist", {"id": "playlist0"})
+    timeline_frames = 0
+    for seg in doc["segments"]:
+        in_frame = max(0, int(round(float(seg["start"]) * fps)))
+        clip_frames = max(1, int(round((float(seg["end"]) - float(seg["start"])) * fps)))
+        out_frame = in_frame + clip_frames - 1
+        ET.SubElement(playlist, "entry", {
+            "producer": "producer0",
+            "in": str(in_frame),
+            "out": str(out_frame),
+        })
+        timeline_frames += clip_frames
+
+    tractor = ET.SubElement(root, "tractor", {
+        "id": "tractor0",
+        "title": name,
+        "in": "0",
+        "out": str(max(0, timeline_frames - 1)),
+    })
+    proj = ET.SubElement(tractor, "property", {"name": "kdenlive:projectTractor"})
+    proj.text = "1"
+    if markers:
+        guides = [
+            {"pos": max(0, int(round(float(at) * fps))), "comment": label, "type": 0}
+            for at, label in markers
+        ]
+        gprop = ET.SubElement(tractor, "property", {"name": "kdenlive:docproperties.guides"})
+        gprop.text = json.dumps(guides)
+    ET.SubElement(tractor, "track", {"producer": "playlist0"})
+
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def melt_render_cmd(melt_bin, mlt_path, render_path):
+    """Build a deterministic H.264/AAC faststart melt command."""
+    return [
+        str(melt_bin),
+        str(mlt_path),
+        "-consumer",
+        f"avformat:{render_path}",
+        "vcodec=libx264",
+        "crf=18",
+        "preset=medium",
+        "acodec=aac",
+        "ab=192k",
+        "movflags=+faststart",
+    ]
 
 
 def gap_markers(doc, gap_min):
@@ -143,19 +262,16 @@ def main():
                     help="auto-markers at removed pauses (default gaps)")
     ap.add_argument("--gap-min", type=float, default=2.0,
                     help="minimum removed pause that earns a marker")
+    ap.add_argument("--render", default=None,
+                    help="optional output video path to render headlessly via melt")
     args = ap.parse_args()
-
-    try:
-        import opentimelineio as otio
-    except ImportError:
-        die("OpenTimelineIO not installed. Run: uv pip install -r requirements.txt")
 
     doc = read_segments(args.segments)
     output = Path(args.output)
     fmt = args.format or output.suffix.lstrip(".").lower()
     if fmt == "fcpxml":
-        die("OpenTimelineIO writes FCP7 XMEML, which Resolve only accepts from a "
-            f"'.xml' file. Rename the output: -o {output.with_suffix('.xml')}")
+        die("OpenTimelineIO writes FCP7 XMEML, not Apple FCPXML. "
+            f"Rename the output: -o {output.with_suffix('.xml')}")
     if fmt not in FORMATS:
         die(f"unknown format '{fmt}'. Use one of: {', '.join(sorted(FORMATS))}")
 
@@ -167,21 +283,51 @@ def main():
     markers.sort()
 
     name = args.name or Path(doc["source"]).stem
-    timeline = build(doc, name, markers)
-
     output.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        otio.adapters.write_to_file(timeline, str(output), adapter_name=FORMATS[fmt])
-    except Exception as exc:                                  # adapter-specific
-        # Adapters can fail partway and leave a truncated file behind, which
-        # then imports as an empty timeline instead of erroring.
-        output.unlink(missing_ok=True)
-        die(f"{FORMATS[fmt]} adapter failed: {exc}")
+
+    if fmt in MLT_FORMATS:
+        source = Path(doc["source"])
+        if not source.exists():
+            print(f"⚠️  source media is missing at {source} — the timeline will "
+                  "open offline and need relinking.")
+        output.write_text(build_mlt_xml(doc, name, markers), encoding="utf-8")
+    else:
+        try:
+            import opentimelineio as otio
+        except ImportError:
+            die("OpenTimelineIO not installed. Run: uv pip install -r requirements.txt")
+        timeline = build(doc, name, markers)
+        try:
+            otio.adapters.write_to_file(timeline, str(output), adapter_name=OTIO_FORMATS[fmt])
+        except Exception as exc:                              # adapter-specific
+            output.unlink(missing_ok=True)
+            die(f"{OTIO_FORMATS[fmt]} adapter failed: {exc}")
 
     total = sum(s["end"] - s["start"] for s in doc["segments"])
     print(f"✓ {output}  ({len(doc['segments'])} clips, {hms(total)}, "
           f"{len(markers)} markers, {doc['fps']:g}fps)")
-    print("  Resolve: File ▸ Import ▸ Timeline ▸ Pre-Conformed EDL / AAF / XML")
+    if fmt in MLT_FORMATS:
+        print(f"  Kdenlive: kdenlive {output}   |   Headless: melt {output}")
+    else:
+        print("  Import in your NLE as FCP7 XML / CMX 3600 EDL / OpenTimelineIO")
+
+    if args.render:
+        melt_bin = need("melt", hostenv.package_hint("mlt"))
+        render_out = Path(args.render)
+        render_out.parent.mkdir(parents=True, exist_ok=True)
+        if fmt in MLT_FORMATS:
+            run(melt_render_cmd(melt_bin, output, render_out))
+        else:
+            with tempfile.NamedTemporaryFile("w", suffix=".mlt", encoding="utf-8",
+                                             delete=False) as tmp:
+                tmp.write(build_mlt_xml(doc, name, markers))
+                tmp_path = Path(tmp.name)
+            try:
+                run(melt_render_cmd(melt_bin, tmp_path, render_out))
+            finally:
+                tmp_path.unlink(missing_ok=True)
+        print(f"✓ {render_out}  (rendered via melt)")
+
     return 0
 
 

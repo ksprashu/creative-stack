@@ -756,9 +756,8 @@ def do_install(rows):
         # download page a human has to visit. Dispatching it raised KeyError and
         # took the whole install down before the summary that would have said
         # which packages were missing. Route it to the same report that a
-        # first-choice `manual` goes to. Reaper and DaVinci Resolve reach this
-        # path on a real Arch desktop, where their AUR builds need a hand-placed
-        # installer archive and fail without one.
+        # first-choice `manual` goes to. Reaper reaches this path on a real Arch
+        # desktop, where its AUR build needs a hand-placed archive.
         if fallback["kind"] not in INSTALLERS:
             if fallback["kind"] != "manual":
                 warn(f"{pkg['id']}: unknown fallback kind {fallback['kind']!r}")
@@ -873,7 +872,7 @@ def main():
     ap.add_argument("--profile", choices=["full", "headless"], default="full",
                     help="headless drops desktop apps")
     ap.add_argument("--skip-heavy", action="store_true",
-                    help="skip multi-GB packages (LaTeX, Blender, Resolve)")
+                    help="skip multi-GB packages (LaTeX, Blender, FreeCAD)")
     ap.add_argument("--group", action="append", help="limit to a group (repeatable)")
     ap.add_argument("--no-refresh", action="store_true",
                     help="do not refresh the package index first")

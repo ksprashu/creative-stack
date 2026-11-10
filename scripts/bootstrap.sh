@@ -18,7 +18,7 @@
 #
 #   bash scripts/bootstrap.sh                  # full install
 #   bash scripts/bootstrap.sh --headless       # no desktop apps (servers, CI)
-#   bash scripts/bootstrap.sh --skip-heavy     # no LaTeX / Blender / Resolve
+#   bash scripts/bootstrap.sh --skip-heavy     # no LaTeX / Blender / FreeCAD
 #   bash scripts/bootstrap.sh --with-ml        # + torch for SAM 2 (~1GB)
 #   bash scripts/bootstrap.sh --skip-packages  # everything except the long run
 #   bash scripts/bootstrap.sh --doctor         # verify only, change nothing
@@ -326,7 +326,7 @@ ok "node CLIs installed"
 # skip the only stage that tells you what you actually got. A traceback out of
 # install_mcp.py — a shebang-less `claude` stub is enough — used to end the run
 # at 5/7 with no report at all. doctor.py runs last precisely so that it runs.
-say "4/7 App bridges (headless entry points, soundfont, Resolve env)"
+say "4/7 App bridges (headless entry points, soundfont, env)"
 "$VENV/bin/python" "$SCRIPT_DIR/install_bridges.py" || \
   warn "app bridges incomplete — doctor.py will say which"
 

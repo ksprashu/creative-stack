@@ -20,8 +20,8 @@ macOS buries each app's CLI inside its .app bundle; Linux scatters them across
 ~/.local/bin under a stable name, so skill scripts call `blender` /
 `inkscape` / `gimp-console` and never hardcode a path.
 
-Also: fetches a General MIDI SoundFont for fluidsynth, writes the DaVinci
-Resolve scripting environment, and prints how to finish OBS setup.
+Also: fetches a General MIDI SoundFont for fluidsynth, writes creative-stack.env,
+and prints how to finish OBS and Blender addon setup.
 
     python3 scripts/install_bridges.py           # link + fetch
     python3 scripts/install_bridges.py --check    # report only, change nothing
@@ -60,9 +60,8 @@ def info(msg):
 
 # The stable names skills call. The candidate paths behind each one differ per
 # platform and live in hostenv.APP_BRIDGES, which doctor.py reads too.
-BRIDGE_NAMES = ["blender", "inkscape", "gimp-console", "gimp-app", "reaper", "audacity"]
-
-RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
+BRIDGE_NAMES = ["blender", "inkscape", "gimp-console", "gimp-app", "reaper",
+                "audacity", "kdenlive", "freecadcmd"]
 
 # Small, permissively licensed (MIT) General MIDI bank. ~140MB uncompressed is
 # too big to vendor, so fetch on demand and cache in-repo (gitignored).
@@ -103,7 +102,7 @@ def link_bridges(check_only):
             continue
 
         link = BIN_DIR / name
-        wrap = ".app/Contents/MacOS/" in str(target)
+        wrap = ".app/Contents/" in str(target)
         if wrap and is_ours(link) and link.read_text() == wrapper_text(target):
             ok(f"{name} -> {target} (wrapper)")
             linked += 1
@@ -143,34 +142,7 @@ def link_bridges(check_only):
     return linked
 
 
-def resolve_env(check_only):
-    """DaVinci Resolve's Python API is found via three env vars, not a package."""
-    print("\n▸ DaVinci Resolve scripting environment")
-    if not RESOLVE_API.exists():
-        warn("Resolve scripting API not found — skipping")
-        return {}
-
-    env = {
-        "RESOLVE_SCRIPT_API": str(RESOLVE_API),
-        "RESOLVE_SCRIPT_LIB": str(RESOLVE_LIB),
-        "PYTHONPATH": f"{RESOLVE_API / 'Modules'}",
-    }
-    for k, v in env.items():
-        exists = Path(v.split(":")[0]).exists()
-        (ok if exists else warn)(f"{k}={v}")
-
-    # Free edition only allows scripting from Resolve's own console. Detect and
-    # say so plainly, rather than letting /vidkit fail later with a null handle.
-    # Blackmagic ships Linux as Studio-only, so an install there always scripts.
-    if RESOLVE_IS_STUDIO:
-        ok("Studio detected — external scripting available")
-    else:
-        warn("Free edition — external scripting is NOT available.")
-        info("/vidkit will emit FCP7 XML for manual import instead. This is expected.")
-    return env
-
-
-def write_env_file(env, check_only):
+def write_env_file(check_only):
     """Emit a sourceable env file. Secrets are NOT written here — they stay in
     Keychain and are read at call time."""
     print("\n▸ Environment file")
@@ -196,8 +168,6 @@ def write_env_file(env, check_only):
     ]
     if not hostenv.IS_MAC:
         lines.append('export PATH="$HOME/.cargo/bin:$HOME/go/bin:$PATH"')
-    for k, v in env.items():
-        lines.append(f'export {k}="{v}"')
     # Pin whatever hostenv.soundfont() resolves to today, so a later distro
     # package upgrade cannot silently swap the bank out from under a mix that
     # has already been rendered once.
@@ -289,9 +259,8 @@ def main():
     print("=" * 66)
 
     link_bridges(args.check)
-    env = resolve_env(args.check)
     fetch_soundfont(args.check)
-    write_env_file(env, args.check)
+    write_env_file(args.check)
     obs_notes()
     blender_addon_note()
 

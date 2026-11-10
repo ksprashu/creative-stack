@@ -33,12 +33,16 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
-            "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts"):
+            "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts",
+            "skills/cad/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
 import autocut  # noqa: E402
+import cadlib  # noqa: E402
 import captions  # noqa: E402
+import check  # noqa: E402
+import convert  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
@@ -46,6 +50,7 @@ import scan  # noqa: E402
 import segment  # noqa: E402
 import session  # noqa: E402
 import sync_skills  # noqa: E402
+import timeline  # noqa: E402
 import vidscan  # noqa: E402
 import voice  # noqa: E402
 
@@ -999,6 +1004,254 @@ class VidScanTest(unittest.TestCase):
         self.assertIn("chroma_radius=1:", graph)                   # tiny box stays legal
         self.assertIn("[base][b0]overlay=10:20:enable='between(t,1.0,3.5)'[v0];", graph)
         self.assertTrue(graph.rstrip().endswith("enable='between(t,0.0,2.0)'[vout]"))
+
+class TimelineMltAndFossManifestTest(unittest.TestCase):
+    def test_mlt_rate_handles_ntsc_and_integer_fps(self):
+        self.assertEqual(timeline.mlt_rate(29.97003), (30000, 1001))
+        self.assertEqual(timeline.mlt_rate(59.94), (60000, 1001))
+        self.assertEqual(timeline.mlt_rate(23.976), (24000, 1001))
+        self.assertEqual(timeline.mlt_rate(30.0), (30, 1))
+
+    def test_build_mlt_xml_writes_inclusive_frames_and_kdenlive_guides(self):
+        import xml.etree.ElementTree as ET
+
+        doc = {
+            "version": 1,
+            "source": "/tmp/demo & talk.mp4",
+            "duration": 10.0,
+            "fps": 30.0,
+            "width": 1920,
+            "height": 1080,
+            "segments": [
+                {"start": 0.0, "end": 2.0},   # 60 frames: in=0, out=59
+                {"start": 5.0, "end": 6.5},   # 45 frames: in=150, out=194
+            ],
+        }
+        markers = [(0.0, "Intro"), (2.0, "Cut & Demo")]
+        xml_text = timeline.build_mlt_xml(doc, "Walkthrough", markers)
+        root = ET.fromstring(xml_text)
+
+        self.assertEqual(root.tag, "mlt")
+        profile = root.find("profile")
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.attrib["frame_rate_num"], "30")
+        self.assertEqual(profile.attrib["frame_rate_den"], "1")
+        self.assertEqual(profile.attrib["width"], "1920")
+        self.assertEqual(profile.attrib["height"], "1080")
+
+        producer = root.find("producer")
+        self.assertIsNotNone(producer)
+        props = {p.attrib["name"]: p.text for p in producer.findall("property")}
+        self.assertEqual(props["resource"], "/tmp/demo & talk.mp4")
+
+        entries = root.findall("./playlist[@id='playlist0']/entry")
+        self.assertEqual(len(entries), 2)
+        self.assertEqual((entries[0].attrib["in"], entries[0].attrib["out"]), ("0", "59"))
+        self.assertEqual((entries[1].attrib["in"], entries[1].attrib["out"]), ("150", "194"))
+
+        tractor = root.find("./tractor[@id='tractor0']")
+        self.assertIsNotNone(tractor)
+        tprops = {p.attrib["name"]: p.text for p in tractor.findall("property")}
+        guides = json.loads(tprops["kdenlive:docproperties.guides"])
+        self.assertEqual(guides, [
+            {"pos": 0, "comment": "Intro", "type": 0},
+            {"pos": 60, "comment": "Cut & Demo", "type": 0},
+        ])
+
+    def test_melt_render_cmd_uses_libx264_aac_faststart(self):
+        cmd = timeline.melt_render_cmd("/usr/bin/melt", Path("out/edit.mlt"), Path("out/final.mp4"))
+        self.assertEqual(cmd[0], "/usr/bin/melt")
+        self.assertIn("out/edit.mlt", cmd)
+        self.assertIn("avformat:out/final.mp4", cmd)
+        self.assertIn("vcodec=libx264", cmd)
+        self.assertIn("acodec=aac", cmd)
+
+    def test_render_without_melt_dies_with_install_hint(self):
+        doc = {"version": 1, "source": "/tmp/demo.mp4", "duration": 4.0, "fps": 30.0,
+               "width": 1280, "height": 720, "segments": [{"start": 0.0, "end": 2.0}]}
+        hints = []
+
+        def need(tool, hint=""):
+            hints.append((tool, hint))
+            raise SystemExit(1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seg = Path(tmp) / "demo.segments.json"
+            seg.write_text(json.dumps(doc))
+            argv = ["timeline.py", "-s", str(seg), "-o", str(Path(tmp) / "edit.mlt"),
+                    "--render", str(Path(tmp) / "final.mp4")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(timeline, "need", need), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaises(SystemExit):
+                timeline.main()
+        self.assertEqual(hints, [("melt", hostenv.package_hint("mlt"))])
+
+    def test_manifest_and_hostenv_drop_resolve_and_include_mlt_kdenlive(self):
+        manifest = json.loads((ROOT / "packages/manifest.json").read_text())
+        ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
+        self.assertNotIn("resolve", ids)
+        self.assertIn("mlt", ids)
+        self.assertIn("kdenlive", ids)
+        self.assertIn("kdenlive", hostenv.APP_BRIDGES)
+        self.assertNotIn("resolve", hostenv.describe())
+
+        claude_pkg = next(
+            p for g in manifest["groups"] for p in g["packages"] if p["id"] == "claude-code"
+        )
+        self.assertTrue(claude_pkg.get("optional"))
+        self.assertIn("proprietary", claude_pkg.get("note", "").lower())
+
+
+def _box_triangles(x0, y0, z0, dx, dy, dz):
+    """12 outward-wound triangles for an axis-aligned [x0..x1]x[y0..y1]x[z0..z1] box."""
+    x1, y1, z1 = x0 + dx, y0 + dy, z0 + dz
+    p000, p100, p110, p010 = (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)
+    p001, p101, p111, p011 = (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)
+    return [
+        (p000, p010, p110), (p000, p110, p100),  # Bottom (-Z)
+        (p001, p101, p111), (p001, p111, p011),  # Top (+Z)
+        (p000, p100, p101), (p000, p101, p001),  # Front (-Y)
+        (p010, p011, p111), (p010, p111, p110),  # Back (+Y)
+        (p000, p001, p011), (p000, p011, p010),  # Left (-X)
+        (p100, p110, p111), (p100, p111, p101),  # Right (+X)
+    ]
+
+
+class CadKernelTest(unittest.TestCase):
+    def test_freecad_in_manifest_and_bridges(self):
+        manifest = json.loads((ROOT / "packages/manifest.json").read_text())
+        ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
+        self.assertIn("freecad", ids)
+        self.assertIn("freecadcmd", hostenv.APP_BRIDGES)
+
+    def test_missing_freecadcmd_dies_with_install_hint(self):
+        err = io.StringIO()
+        with mock.patch.object(convert.C.hostenv, "find_app", return_value=None), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            convert.convert_with_freecad(Path("part.fcstd"), Path("part.step"), 0.01)
+        self.assertIn(hostenv.package_hint("freecad"), err.getvalue())
+
+    def test_intermediate_step_removed_when_freecad_fails(self):
+        made = []
+
+        def fail(src, dst, tolerance):
+            made.append(dst)
+            raise SystemExit(1)              # what C.die() raises
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "part.fcstd"
+            src.write_bytes(b"")
+            argv = ["convert.py", "-i", str(src), "-o", str(Path(tmp) / "part.3mf")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(convert, "convert_with_freecad", fail), \
+                    self.assertRaises(SystemExit):
+                convert.main()
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
+
+    def test_intermediate_step_removed_after_success(self):
+        made = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "part.iges"
+            src.write_bytes(b"")
+            argv = ["convert.py", "-i", str(src), "-o", str(Path(tmp) / "part.3mf")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(convert, "convert_with_freecad",
+                                      lambda s, d, t: made.append(d)), \
+                    mock.patch.object(convert, "export", lambda *a: 0):
+                self.assertEqual(convert.main(), 0)
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
+
+    def test_export_empty_3mf_dies_cleanly(self):
+        class EmptyMesher:
+            def read(self, _path):
+                return []
+
+        fake_b123d = mock.MagicMock(Mesher=EmptyMesher)
+        err = io.StringIO()
+        with mock.patch.dict(sys.modules, {"build123d": fake_b123d}), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            convert.export(Path("empty.3mf"), ".3mf", Path("out.stl"), ".stl", 0.01)
+        self.assertIn("no shapes found in empty.3mf", err.getvalue())
+
+    def test_empty_mesh_fails_check_without_key_error(self):
+        rep = cadlib.analyze_mesh([])
+        self.assertEqual(rep["bed_mm"], [256.0, 256.0, 256.0])
+        self.assertEqual(rep["degenerate_triangles"], 0)
+        failures, _ = check.evaluate(rep)
+        self.assertEqual(failures, ["mesh has zero triangles"])
+
+    def test_check_empty_3mf_dies_cleanly(self):
+        class EmptyMesher:
+            def read(self, _path):
+                return []
+
+        fake_b123d = mock.MagicMock(Mesher=EmptyMesher)
+        err = io.StringIO()
+        with mock.patch.dict(sys.modules, {"build123d": fake_b123d}), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            check.load_triangles(Path("empty.3mf"))
+        self.assertIn("no shapes found in empty.3mf", err.getvalue())
+
+    def test_binary_and_ascii_stl_parsing_and_closed_box_metrics(self):
+        tris = _box_triangles(-5.0, -10.0, 0.0, 10.0, 20.0, 30.0)
+        blob = cadlib.write_binary_stl_bytes(tris)
+        parsed_bin = cadlib.parse_stl(blob)
+        self.assertEqual(len(parsed_bin), 12)
+
+        ascii_lines = ["solid box"]
+        for a, b, c in tris:
+            ascii_lines.append("  facet normal 0 0 0\n    outer loop")
+            for vx, vy, vz in (a, b, c):
+                ascii_lines.append(f"      vertex {vx} {vy} {vz}")
+            ascii_lines.append("    endloop\n  endfacet")
+        ascii_lines.append("endsolid box\n")
+        parsed_ascii = cadlib.parse_stl("\n".join(ascii_lines).encode("utf-8"))
+        self.assertEqual(len(parsed_ascii), 12)
+
+        rep = cadlib.analyze_mesh(parsed_bin)
+        self.assertTrue(rep["watertight"])
+        self.assertEqual(rep["boundary_edges"], 0)
+        self.assertEqual(rep["non_manifold_edges"], 0)
+        self.assertEqual(rep["components"], 1)
+        self.assertAlmostEqual(rep["volume_cm3"], 6.0, places=3)
+        self.assertAlmostEqual(rep["bed_contact_mm2"], 200.0, places=2)
+        self.assertAlmostEqual(rep["overhang"]["area_mm2"], 0.0, places=3)
+        self.assertTrue(rep["fits_bed"])
+        self.assertIsNone(rep["unit_warning"])
+
+    def test_open_mesh_and_disconnected_bodies_detected(self):
+        open_box = _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 10.0)[:-1]
+        rep_open = cadlib.analyze_mesh(open_box)
+        self.assertFalse(rep_open["watertight"])
+        self.assertEqual(rep_open["boundary_edges"], 3)
+
+        two_parts = (
+            _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 5.0)
+            + _box_triangles(0.0, 0.0, 5.2, 4.0, 4.0, 4.0)
+        )
+        rep_two = cadlib.analyze_mesh(two_parts)
+        self.assertTrue(rep_two["watertight"])
+        self.assertEqual(rep_two["components"], 2)
+
+    def test_cantilever_bridge_flags_overhang_and_tiny_or_huge_warns(self):
+        shelf = (
+            _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 20.0)
+            + _box_triangles(10.0, 0.0, 10.0, 15.0, 10.0, 5.0)
+        )
+        rep = cadlib.analyze_mesh(shelf, max_overhang_deg=45.0)
+        self.assertAlmostEqual(rep["overhang"]["area_mm2"], 150.0, places=2)
+
+        tiny = cadlib.analyze_mesh(_box_triangles(0.0, 0.0, 0.0, 0.05, 0.05, 0.05))
+        self.assertIsNotNone(tiny["unit_warning"])
+
+        huge = cadlib.analyze_mesh(_box_triangles(0.0, 0.0, 0.0, 300.0, 100.0, 50.0),
+                                   bed_size=(256.0, 256.0, 256.0))
+        self.assertFalse(huge["fits_bed"])
+
 
 if __name__ == "__main__":
     unittest.main()

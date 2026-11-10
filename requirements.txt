@@ -12,8 +12,8 @@ numpy>=1.26
 opencv-python-headless>=4.10  # segment.py --op inpaint (Telea fill); headless: no GUI/Qt pulled in
 
 # --- video / timeline --------------------------------------------------------
-OpenTimelineIO>=0.17         # FCPXML / EDL emit for DaVinci Resolve finishing
-opentimelineio-plugins>=0.17 # FCPXML adapter lives here
+OpenTimelineIO>=0.17         # FCP7 XML / EDL / OTIO timeline interchange
+opentimelineio-plugins>=0.17 # FCP7 XML adapter lives here
 
 # --- audio -------------------------------------------------------------------
 pydub>=0.25
@@ -31,6 +31,9 @@ mido>=1.3                    # MIDI file I/O
 # --- documents ---------------------------------------------------------------
 python-pptx>=1.0
 pypdf>=5.0
+
+# --- cad / 3d printing -------------------------------------------------------
+build123d>=0.9               # OpenCASCADE parametric B-rep -> STL / 3MF / STEP (/cad)
 
 # --- capture -----------------------------------------------------------------
 playwright>=1.48             # deterministic web + HTML-template rendering

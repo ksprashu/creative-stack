@@ -55,7 +55,7 @@ TOOLS = {
     "diagram": ["dot", "d2", "plantuml", "mmdc"],
     "document": ["pandoc", "gs", "pdftoppm", "qpdf", "mutool", "typst", "tectonic"],
     "slides": ["marp", "presenterm"],
-    "video": ["ffmpeg", "ffprobe", "HandBrakeCLI", "mkvmerge", "yt-dlp", "auto-editor"],
+    "video": ["ffmpeg", "ffprobe", "melt", "HandBrakeCLI", "mkvmerge", "yt-dlp", "auto-editor"],
     "capture": ["vhs", "asciinema", "agg", "silicon", "termshot", "freeze", "anot8"],
     "audio": ["sox", "rubberband", "lame", "flac", "fluidsynth", "lilypond", "csound"],
     "speech": ["whisper-cli", "tesseract"],
@@ -81,9 +81,6 @@ REQUIRED_FILTERS = ["ass", "subtitles", "drawtext", "zoompan", "loudnorm",
 # failed its smoke test with `Permission denied: ''`.
 BRIDGES = {name: hostenv.find_app(name)
            for name in ("blender", "inkscape", "gimp-console")}
-
-RESOLVE_API, RESOLVE_LIB, RESOLVE_IS_STUDIO = hostenv.resolve_paths()
-RESOLVE_MODULES = RESOLVE_API / "Modules"
 
 
 GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
@@ -453,20 +450,21 @@ def check_ml(rep):
                          "segment.py --refine sam2")
 
 
-def check_resolve(rep):
-    if not RESOLVE_API.exists() and not hostenv.find_app("resolve"):
-        return rep.add("resolve", "install", "skip", "not installed")
-
-    # The external scripting API only works on Studio — free allows scripting
-    # from Resolve's own console only. Blackmagic ships Linux as Studio-only,
-    # so a Linux install implies scripting works.
-    is_studio = RESOLVE_IS_STUDIO
-    rep.add("resolve", "edition", "ok",
-            "Studio — external scripting available" if is_studio
-            else "Free — external scripting NOT available; /vidkit emits FCP7 XML")
-    rep.add("resolve", "scripting modules",
-            "ok" if RESOLVE_MODULES.exists() else "warn",
-            str(RESOLVE_MODULES) if RESOLVE_MODULES.exists() else "missing")
+def check_cad(rep):
+    py = REPO_ROOT / ".venv/bin/python"
+    have_b123d = False
+    if py.exists():
+        probe = "import importlib.util as u, sys; sys.exit(0 if u.find_spec('build123d') else 1)"
+        try:
+            have_b123d = subprocess.run([str(py), "-c", probe], timeout=30).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            have_b123d = False
+    rep.add("cad", "build123d", "ok" if have_b123d else "warn",
+            "OpenCASCADE B-rep -> STL / 3MF / STEP (/cad)"
+            if have_b123d else "missing in .venv — uv pip install -r requirements.txt")
+    fc = hostenv.find_app("freecadcmd")
+    rep.add("cad", "freecadcmd", "ok" if fc else "skip",
+            str(fc) if fc else "FreeCAD optional (needed only for .fcstd files)")
 
 
 def harnesses():
@@ -511,7 +509,7 @@ def check_mcp(rep):
                     f"{mcp['path']} missing — run install_mcp.py")
             continue
         text = path.read_text()
-        names = [n for n in ("blender", "gimp", "resolve", "anot8") if f'"{n}"' in text]
+        names = [n for n in ("blender", "gimp", "anot8") if f'"{n}"' in text]
         seen = True
         rep.add("mcp", label, "ok" if names else "warn",
                 f"{mcp['path']}: {', '.join(names) or 'no servers declared'}")
@@ -581,7 +579,7 @@ def main():
     check_bridges(rep, args.quick)
     check_credentials(rep, args.quick)
     check_ml(rep)
-    check_resolve(rep)
+    check_cad(rep)
     check_mcp(rep)
     check_skills(rep)
 

@@ -37,12 +37,13 @@ bash scripts/bootstrap.sh
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
+| `/cad` | Parametric 3D parts (`build123d` + optional FreeCAD) → verified, manifold `.stl` / `.3mf` / `.step` ready for a 3D printer slicer |
 | `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
 | `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Cloud Text-to-Speech (Gemini 3.1 TTS, Chirp 3 HD) and Gemini Live, or your own voice: recorded, replicated, or mixed in with the synthetic one |
 | `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
-Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP, Reaper and
-Audacity, and four opt-in MCP servers.
+Underneath: 100 packages across 15 groups, headless bridges to Blender, FreeCAD, Inkscape, GIMP,
+Kdenlive, Reaper and Audacity, and three opt-in MCP servers.
 
 📖 **See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for the complete reference, per-skill CLI flags, intermediate file contracts, and multi-skill production recipes.**
 
@@ -53,7 +54,7 @@ Audacity, and four opt-in MCP servers.
 ```bash
 bash scripts/bootstrap.sh                  # everything
 bash scripts/bootstrap.sh --headless       # no desktop apps — servers, CI, containers
-bash scripts/bootstrap.sh --skip-heavy     # no LaTeX, Blender or Resolve (~10GB lighter)
+bash scripts/bootstrap.sh --skip-heavy     # no LaTeX, Blender or FreeCAD (~10GB lighter)
 bash scripts/bootstrap.sh --with-ml        # + torch/transformers for SAM 2 refinement and video tracking (~1GB)
 bash scripts/bootstrap.sh --yes            # never prompt (cloud-init, provisioning)
 bash scripts/bootstrap.sh --doctor         # verify only, change nothing
@@ -78,7 +79,7 @@ start and keeps the timestamp warm, so a long install still finishes without bab
 | Secrets | Keychain | libsecret (`secret-tool`) | libsecret (`secret-tool`) |
 | ffmpeg | keg-only `ffmpeg-full` — the stock formula has no libass or freetype | distro build, already complete | distro build, already complete |
 | Rust | Homebrew | `rust` | rustup — apt's 1.75 is too old to build `oxipng` and friends |
-| DaVinci Resolve | free edition **cannot** be scripted externally | Studio-only on Linux, so scripting always works | same |
+| Video NLE / MLT | `kdenlive` cask + `mlt` (`melt`) | `kdenlive` + `mlt` (`melt`) | `kdenlive` + `melt` |
 
 Where there is no secret store at all, keys fall back to a `0600` file at
 `~/.config/creative-stack/secrets.env`. They are never written into the repo.

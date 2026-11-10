@@ -21,6 +21,7 @@ A complete reference and practitioner handbook for the **Creative Stack**: eight
    - [`/vector` — Diagrams (D2, Mermaid, Graphviz, PlantUML), SVG & Tracing](#44-vector--diagrams-d2-mermaid-graphviz-plantuml-svg--tracing)
    - [`/raster` — Batch Edits, Responsive Ladders, Cutouts & SAM 2 Segmentation](#45-raster--batch-edits-responsive-ladders-cutouts--sam-2-segmentation)
    - [`/render3d` — Headless Blender Cycles/EEVEE, 3D Logos & Turntables](#46-render3d--headless-blender-cycleseevee-3d-logos--turntables)
+   - [`/cad` — Parametric 3D Parts & Slicer-Ready STL / 3MF / STEP](#46b-cad--parametric-3d-parts--slicer-ready-stl--3mf--step)
    - [`/sound` — Speech Cleanup, Procedural Music Beds, Sidechain Ducking & Reaper](#47-sound--speech-cleanup-procedural-music-beds-sidechain-ducking--reaper)
    - [`/artgen` — Generative Images, Video, TTS Narration, Music & Grounded Research](#48-artgen--generative-images-video-tts-narration-music--grounded-research)
 5. [End-to-End Multi-Skill Recipes](#5-end-to-end-multi-skill-recipes)
@@ -95,9 +96,8 @@ export GOOGLE_CLOUD_LOCATION="global"
 ```
 
 What `creative-stack.env` sets up:
-- Pre-pends `~/.local/bin` to `PATH` so headless wrapper scripts (`blender`, `inkscape`, `gimp-console`, `gimp-app`, `soffice`) are discoverable without symlink-breaking macOS `.app` bundle plug-in resolution.
+- Pre-pends `~/.local/bin` to `PATH` so headless wrapper scripts (`blender`, `inkscape`, `gimp-console`, `gimp-app`, `kdenlive`, `soffice`) are discoverable without symlink-breaking macOS `.app` bundle plug-in resolution.
 - Exports `CREATIVE_STACK_ROOT` and `CREATIVE_STACK_SOUNDFONT` (`assets/soundfonts/FluidR3Mono_GM.sf3`).
-- Exports DaVinci Resolve scripting paths (`RESOLVE_SCRIPT_API`, `RESOLVE_SCRIPT_LIB`, `PYTHONPATH`).
 
 ### Supported Harnesses
 
@@ -188,7 +188,7 @@ Automates talking-head and screencast post-production while keeping every editor
 | `skills/vidkit/scripts/transcribe.py` | Local speech-to-text via `whisper-cli`, emitting `.srt`, `.vtt`, `.txt`, and word-timed `.json` | `-i <media>`, `-o <prefix>`, `--model small.en`, `--vocab <terms>`, `--fillers` (keep um/uh, DTW timings), `--vad` |
 | `skills/vidkit/scripts/captions.py` | Converts `.srt` into brand-styled `.ass` subtitles (`outline`, `box`, `pill`, `karaoke`, `highlight`) and burns them in or muxes a soft track | `-i <mp4>`, `-s <srt>`, `-o <mp4>`, `--style outline\|box\|pill\|karaoke\|highlight`, `--words <json>`, `--soft`, `--ass-only` |
 | `skills/vidkit/scripts/motion.py` | Frame-accurate HTML/CSS motion graphics (`title`, `lower-third`, `end-card`) via Web Animations API seek + ffmpeg | `-t title\|lower-third\|end-card`, `-o <mp4/mov/webm>`, `--param k=v`, `--alpha`, `--overlay-on <mp4>`, `--at <sec>` |
-| `skills/vidkit/scripts/timeline.py` | Exports an OpenTimelineIO FCP7 XML (`edit.xml`), EDL, or OTIO timeline for DaVinci Resolve, Premiere, or Final Cut | `-s <cut.json>`, `-o <edit.xml>`, `--chapters <txt>`, `--markers gaps\|none`, `--gap-min 2.0` |
+| `skills/vidkit/scripts/timeline.py` | Exports a Kdenlive / MLT timeline (`edit.mlt`, with optional headless `melt` render), or OpenTimelineIO FCP7 XML (`edit.xml`), EDL, or OTIO | `-s <cut.json>`, `-o <edit.mlt\|edit.xml>`, `--render <mp4>`, `--chapters <txt>`, `--markers gaps\|none` |
 | `skills/vidkit/scripts/publish.py` | Two-pass EBU R128 loudness normalisation, multi-height H.264/VP9 encode ladder (`1080p`, `720p`, `480p`), chapter metadata, and poster frame | `-i <mp4>`, `-o <dir>`, `--heights 1080 720 480`, `--chapters <txt>`, `--webm`, `--thumb-at <sec>` |
 
 #### Concrete Workflow
@@ -208,9 +208,9 @@ Automates talking-head and screencast post-production while keeping every editor
   --param kicker="Creative Stack" \
   --param title="Ship faster with 8 skills"
 
-# 4. Export an NLE timeline (FCP7 XML) for DaVinci Resolve
+# 4. Export an NLE timeline for Kdenlive / headless melt (or FCP7 XML)
 .venv/bin/python skills/vidkit/scripts/timeline.py \
-  -s out/cut.json -o out/edit.xml
+  -s out/cut.json -o out/edit.mlt
 ```
 
 ---
@@ -324,6 +324,29 @@ Drives headless Blender 5.x (`~/.local/bin/blender -b`) with three-point studio 
 # 3. Extrude a 2D SVG logo into 3D
 .venv/bin/python skills/render3d/scripts/logo3d.py \
   -i flat-logo.svg -o out/logo3d.png --engine cycles --samples 64 --gpu
+```
+
+---
+
+### 4.6b `/cad` — Parametric 3D Parts & Slicer-Ready STL / 3MF / STEP
+
+Designs dimensionally accurate mechanical parts in millimetres via OpenCASCADE (`build123d`), drops them onto `Z = 0` for the print bed, verifies watertight manifold topology and overhangs, exports `.stl` + `.3mf` + `.step`, and bridges `.fcstd`/`.iges` via optional `freecadcmd`.
+
+#### Scripts & Capabilities
+
+| Script | Purpose | Key Flags |
+| :--- | :--- | :--- |
+| `skills/cad/scripts/build.py` | Compiles `part.py` + `params.json` -> bed-aligned `.stl`, `.3mf`, `.step` + printability gate + `/render3d` preview | `-s <part.py>`, `-p <params.json>`, `--set key=val`, `-o <stem>`, `--bed 256x256x256`, `--preview <png>` |
+| `skills/cad/scripts/check.py` | Verifies manifoldness, connected solid count, mm bounds, bed contact area, and steep overhangs (`>45°`) | `-i <stl/3mf/step>`, `--bed <WxDxH>`, `--expected-parts 1`, `--max-overhang 45`, `--json <report.json>` |
+| `skills/cad/scripts/convert.py` | Converts between `.step`, `.iges`, `.fcstd`, `.stl`, and `.3mf` (`build123d` + `freecadcmd` fallback) | `-i <src>`, `-o <dst>`, `--tolerance 0.01` |
+
+#### Concrete Workflow
+
+```bash
+# Build a parametric M3 bracket, verify manifold + bed contact, and render an isometric preview
+.venv/bin/python skills/cad/scripts/build.py \
+  -s out/cad-smoke/part.py -p out/cad-smoke/params.json \
+  -o out/cad-smoke/bracket --preview out/cad-smoke/preview.png
 ```
 
 ---
@@ -452,7 +475,7 @@ Creative Stack configures three opt-in MCP servers (all pinned to reviewed commi
 | :--- | :--- | :--- | :--- |
 | **`blender`** | `uvx --from git+https://github.com/ahujasid/blender-mcp@<sha> blender-mcp` | **Opt-in (Disabled)** | Interactive two-way socket bridge to a live Blender GUI session (`Edit -> Preferences -> Add-ons -> Blender MCP -> Connect`) |
 | **`gimp`** | `uv run --directory ~/.local/share/creative-stack/mcp/gimp gimp_mcp_server.py` | **Opt-in (Disabled)** | Interactive bridge to a live GIMP 3.x GUI session (`Filters -> Development -> Start MCP Server`) |
-| **`resolve`** | `.venv/bin/python ~/.local/share/creative-stack/mcp/resolve/src/resolve_mcp_server.py` | **Opt-in (Disabled)** | Interactive bridge to a live DaVinci Resolve Studio session |
+| **`anot8`** | `npx -y @ksprashu/anot8@1.1.0 mcp` | **Opt-in (Project)** | Headless parametric screenshot annotation, redaction, and Markdown callout server |
 
 > **Why all three MCP servers are opt-in**: Headless batch rendering (`/render3d` and `gimp-console`) invokes `~/.local/bin/blender -b` and `~/.local/bin/gimp-console` directly as subprocesses and **does not need the MCP servers running**. Enable an MCP server only when you have the desktop app open in front of you and want the agent to manipulate a live scene interactively.
 
