@@ -271,8 +271,15 @@ def build_ass(cues, meta, style, opts):
 
 
 def filter_path(path):
-    """Escape a path for use inside an ffmpeg filter argument."""
-    return str(path).replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
+    """Escape a path for use inside a single-quoted ffmpeg filter argument.
+
+    Nothing escapes inside '...', so a quote has to close the string, appear
+    escaped once for each of ffmpeg's two parsing levels, and reopen it:
+    `'\\\\\\''`. A bare `\\'` ends the quoting instead, and the rest of the
+    path is parsed as filtergraph syntax.
+    """
+    return (str(path).replace("\\", "\\\\").replace(":", r"\:")
+            .replace("'", r"'\\\''"))
 
 
 def check_font(name):

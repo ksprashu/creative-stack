@@ -741,8 +741,10 @@ def secret_set_hint(name, env_var):
                 f'service {SECRET_SERVICE} account {name}',
                 f'export {env_var}=$(secret-tool lookup '
                 f'service {SECRET_SERVICE} account {name})')
-    return (f'install -m 600 /dev/null {_SECRET_FILE} && '
-            f'echo "{name}=<value>" >> {_SECRET_FILE}',
+    # read -rs keeps the value out of shell history and off the screen, and
+    # the file is appended to (not truncated) and left 0600.
+    return (f'(umask 077; read -rs v && printf "%s=%s\\n" {name} "$v" '
+            f'>> {_SECRET_FILE} && chmod 600 {_SECRET_FILE})',
             f'export {env_var}=$(grep ^{name}= {_SECRET_FILE} | cut -d= -f2-)')
 
 
