@@ -16,8 +16,10 @@ draw a box around.
 ## 🎯 Goal
 
 Every edit is a named operation in an ordered list, so the same pipeline runs on one image or a
-thousand and the command is still readable in six months. Nothing here opens a GUI, nothing
-uploads, and nothing upscales behind your back.
+thousand and the command is still readable in six months. Nothing here opens a GUI, and nothing
+upscales behind your back. Everything runs locally except `segment.py --query`, which sends the
+image (downscaled to 1536 px) to Gemini. Tell the user before you send an image that may show a
+secret or personal data.
 
 For layer work that genuinely needs a raster editor — masks, channels, a real composite —
 `gimp-console` is on PATH and takes Script-Fu on stdin. Reach for it when the pipeline stops

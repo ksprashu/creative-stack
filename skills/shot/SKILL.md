@@ -54,11 +54,13 @@ screenshot can be regenerated when the UI changes instead of re-taken by hand.
    known key format, labelled value (`password:`, `GITHUB_TOKEN=`), email, GCP project id, card
    number and long random string, leaving the label itself readable. Its report shows only the
    first four characters of each hit. `--ai` adds a Gemini pass for what OCR can't read: faces,
-   avatars, names, account pickers. Review the `scan-*` blurs in the render: delete a false
+   avatars, names, account pickers. That pass **uploads the unredacted screenshot** to Gemini,
+   so ask first, and never use it on an image with a live secret: revoke the secret or blur
+   it locally instead. Review the `scan-*` blurs in the render: delete a false
    positive from the spec, and blur anything it missed by hand.
 
    Still a secret it can't find? `/raster`'s `segment.py -i out/raw.png --query "the API key" --json hits.json`
-   finds it by description; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
+   finds it by description. It also uploads the image to Gemini, so the same rule applies; its `box_2d` is `[ymin, xmin, ymax, xmax]` in 0–1000, so a `blur`
    at `x: xmin/10 %`, `y: ymin/10 %`, `w: (xmax - xmin)/10 %`, `h: (ymax - ymin)/10 %` covers it.
 
    A solid redaction is a `box` with `"fillOpacity": 1`. To pixelate rather than blur, use
