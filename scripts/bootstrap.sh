@@ -18,7 +18,7 @@
 #
 #   bash scripts/bootstrap.sh                  # full install
 #   bash scripts/bootstrap.sh --headless       # no desktop apps (servers, CI)
-#   bash scripts/bootstrap.sh --skip-heavy     # no LaTeX / Blender
+#   bash scripts/bootstrap.sh --skip-heavy     # no LaTeX / Blender / FreeCAD
 #   bash scripts/bootstrap.sh --with-ml        # + torch for SAM 2 (~1GB)
 #   bash scripts/bootstrap.sh --skip-packages  # everything except the long run
 #   bash scripts/bootstrap.sh --doctor         # verify only, change nothing

@@ -138,6 +138,8 @@ def export(src, ext_in, dst, ext_out, tolerance):
     elif ext_in == ".3mf":
         mesher_in = Mesher()
         shapes = mesher_in.read(str(src))
+        if not shapes:
+            C.die(f"no shapes found in {src}")
         shape = Compound(children=shapes) if len(shapes) > 1 else shapes[0]
     else:
         C.die(f"unsupported input format: {ext_in}")
