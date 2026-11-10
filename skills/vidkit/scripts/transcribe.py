@@ -26,6 +26,12 @@ Feed the jargon in as an initial prompt:
 
     python3 transcribe.py -i raw.mov -o out/talk \\
         --vocab "Cloud Run, GKE, Vertex AI, gcloud, Terraform, Pub/Sub"
+
+Whisper tidies speech: by default it leaves "um" and "uh" out of the text.
+--fillers primes it to write them down, so autocut.py --fillers can cut them:
+
+    python3 transcribe.py -i raw.mov -o out/talk --fillers
+    python3 autocut.py -i raw.mov -o out/cut.json --fillers out/talk.json
 """
 
 import argparse
@@ -46,6 +52,10 @@ import hostenv  # noqa: E402
 # whisper.cpp GGML weights. Bigger is slower but markedly better on accented
 # speech and technical terms; small.en is the sweet spot for published captions.
 MODEL_REPO = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+# An initial prompt written the way people talk. Whisper copies the style of
+# its prompt, so it transcribes the fillers instead of smoothing them away.
+FILLER_PROMPT = "Um, so, uh, I was, like, hmm, going to, er, show this. Uh-huh."
+
 MODELS = {
     "tiny.en": 78,
     "base.en": 148,
@@ -101,6 +111,8 @@ def main():
     ap.add_argument("--max-len", type=int, default=42,
                     help="max characters per caption line (0 = whisper default)")
     ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--fillers", action="store_true",
+                    help="keep um/uh in the transcript, for autocut.py --fillers")
     ap.add_argument("--vad", action="store_true",
                     help="voice-activity gate; drops hallucinated text in silence")
     args = ap.parse_args()
@@ -134,8 +146,14 @@ def main():
                "-np"]           # suppress the ggml backend banner
         if args.max_len:
             cmd += ["-ml", str(args.max_len)]
-        if args.vocab:
-            cmd += ["--prompt", args.vocab]
+        if args.fillers:
+            # Token timings good enough to find an "um" need DTW, and
+            # whisper.cpp only computes it with flash attention off.
+            cmd += ["-nfa", "--dtw", args.model.replace("-v3-turbo", ".v3.turbo")]
+        prompt = " ".join(p for p in (FILLER_PROMPT if args.fillers else "",
+                                      args.vocab) if p)
+        if prompt:
+            cmd += ["--prompt", prompt]
         if args.vad:
             cmd += ["--vad"]
 
@@ -159,8 +177,9 @@ def main():
     for suffix in (".vtt", ".txt", ".json"):
         if out_prefix.with_suffix(suffix).exists():
             print(f"  {out_prefix.with_suffix(suffix)}")
+    fillers = f" --fillers {out_prefix}.json" if args.fillers else ""
     print(f"  Next: cut the dead air →  python3 autocut.py -i {source} "
-          f"-o {out_prefix.parent}/cut.json")
+          f"-o {out_prefix.parent}/cut.json{fillers}")
     return 0
 
 
