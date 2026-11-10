@@ -71,7 +71,7 @@ def convert_with_freecad(src, dst, tolerance):
     fc = C.hostenv.find_app("freecadcmd")
     if not fc:
         C.die(f"{src.suffix} conversion requires FreeCAD (`freecadcmd`). "
-              f"{C.hostenv.pkg_install_hint('freecad')}")
+              f"{C.hostenv.package_hint('freecad')}")
     with tempfile.NamedTemporaryFile("w", suffix=".py", encoding="utf-8", delete=False) as tmp:
         tmp.write(FREECAD_SNIPPET)
         script_path = Path(tmp.name)
@@ -108,20 +108,24 @@ def main():
     ext_out = dst.suffix.lower()
 
     if ext_in in (".fcstd", ".iges", ".igs") or ext_out in (".iges", ".igs"):
-        if ext_out == ".3mf":
-            with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as tmp:
-                mid_step = Path(tmp.name)
-            try:
-                convert_with_freecad(src, mid_step, args.tolerance)
-                src, ext_in = mid_step, ".step"
-            except Exception:
-                mid_step.unlink(missing_ok=True)
-                raise
-        else:
+        if ext_out != ".3mf":
             convert_with_freecad(src, dst, args.tolerance)
             print(f"✓ {dst}  (via freecadcmd)")
             return 0
+        # FreeCAD writes no 3MF, so it hands build123d a STEP to mesh. The
+        # finally covers C.die() too: SystemExit is not an Exception.
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as tmp:
+            mid_step = Path(tmp.name)
+        try:
+            convert_with_freecad(src, mid_step, args.tolerance)
+            return export(mid_step, ".step", dst, ext_out, args.tolerance)
+        finally:
+            mid_step.unlink(missing_ok=True)
+    return export(src, ext_in, dst, ext_out, args.tolerance)
 
+
+def export(src, ext_in, dst, ext_out, tolerance):
+    """Read `src` with build123d and write `dst`; 0 on success."""
     try:
         from build123d import Compound, Mesher, Unit, export_step, export_stl, import_step, import_stl
     except ImportError:
@@ -139,10 +143,10 @@ def main():
         C.die(f"unsupported input format: {ext_in}")
 
     if ext_out == ".stl":
-        export_stl(shape, str(dst), tolerance=args.tolerance)
+        export_stl(shape, str(dst), tolerance=tolerance)
     elif ext_out == ".3mf":
         mesher_out = Mesher(unit=Unit.MM)
-        mesher_out.add_shape(shape, linear_deflection=args.tolerance)
+        mesher_out.add_shape(shape, linear_deflection=tolerance)
         mesher_out.write(str(dst))
     elif ext_out in (".step", ".stp"):
         export_step(shape, str(dst))

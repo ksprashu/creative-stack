@@ -41,6 +41,7 @@ import analyze  # noqa: E402
 import autocut  # noqa: E402
 import cadlib  # noqa: E402
 import captions  # noqa: E402
+import convert  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
@@ -724,6 +725,27 @@ class TimelineMltAndFossManifestTest(unittest.TestCase):
         self.assertIn("vcodec=libx264", cmd)
         self.assertIn("acodec=aac", cmd)
 
+    def test_render_without_melt_dies_with_install_hint(self):
+        doc = {"version": 1, "source": "/tmp/demo.mp4", "duration": 4.0, "fps": 30.0,
+               "width": 1280, "height": 720, "segments": [{"start": 0.0, "end": 2.0}]}
+        hints = []
+
+        def need(tool, hint=""):
+            hints.append((tool, hint))
+            raise SystemExit(1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            seg = Path(tmp) / "demo.segments.json"
+            seg.write_text(json.dumps(doc))
+            argv = ["timeline.py", "-s", str(seg), "-o", str(Path(tmp) / "edit.mlt"),
+                    "--render", str(Path(tmp) / "final.mp4")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(timeline, "need", need), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaises(SystemExit):
+                timeline.main()
+        self.assertEqual(hints, [("melt", hostenv.package_hint("mlt"))])
+
     def test_manifest_and_hostenv_drop_resolve_and_include_mlt_kdenlive(self):
         manifest = json.loads((ROOT / "packages/manifest.json").read_text())
         ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
@@ -761,6 +783,46 @@ class CadKernelTest(unittest.TestCase):
         ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
         self.assertIn("freecad", ids)
         self.assertIn("freecadcmd", hostenv.APP_BRIDGES)
+
+    def test_missing_freecadcmd_dies_with_install_hint(self):
+        err = io.StringIO()
+        with mock.patch.object(convert.C.hostenv, "find_app", return_value=None), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            convert.convert_with_freecad(Path("part.fcstd"), Path("part.step"), 0.01)
+        self.assertIn(hostenv.package_hint("freecad"), err.getvalue())
+
+    def test_intermediate_step_removed_when_freecad_fails(self):
+        made = []
+
+        def fail(src, dst, tolerance):
+            made.append(dst)
+            raise SystemExit(1)              # what C.die() raises
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "part.fcstd"
+            src.write_bytes(b"")
+            argv = ["convert.py", "-i", str(src), "-o", str(Path(tmp) / "part.3mf")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(convert, "convert_with_freecad", fail), \
+                    self.assertRaises(SystemExit):
+                convert.main()
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
+
+    def test_intermediate_step_removed_after_success(self):
+        made = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "part.iges"
+            src.write_bytes(b"")
+            argv = ["convert.py", "-i", str(src), "-o", str(Path(tmp) / "part.3mf")]
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(convert, "convert_with_freecad",
+                                      lambda s, d, t: made.append(d)), \
+                    mock.patch.object(convert, "export", lambda *a: 0):
+                self.assertEqual(convert.main(), 0)
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
 
     def test_binary_and_ascii_stl_parsing_and_closed_box_metrics(self):
         tris = _box_triangles(-5.0, -10.0, 0.0, 10.0, 20.0, 30.0)

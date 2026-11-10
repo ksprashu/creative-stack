@@ -312,7 +312,7 @@ def main():
         print("  Import in your NLE as FCP7 XML / CMX 3600 EDL / OpenTimelineIO")
 
     if args.render:
-        melt_bin = need("melt", hostenv.pkg_install_hint("mlt"))
+        melt_bin = need("melt", hostenv.package_hint("mlt"))
         render_out = Path(args.render)
         render_out.parent.mkdir(parents=True, exist_ok=True)
         if fmt in MLT_FORMATS:
