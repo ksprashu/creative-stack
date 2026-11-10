@@ -1226,6 +1226,22 @@
           "gui": true,
           "optional": true,
           "note": "FOSS multi-track NLE over MLT; opens timeline.py .mlt timelines natively"
+        },
+        {
+          "id": "freecad",
+          "mac_app": "FreeCAD.app",
+          "provides": [
+            "freecadcmd",
+            "freecad"
+          ],
+          "brew": "freecad",
+          "cask": true,
+          "arch": "freecad",
+          "debian": "freecad",
+          "gui": true,
+          "optional": true,
+          "heavy": true,
+          "note": "FOSS parametric B-rep CAD; headless freecadcmd converts .fcstd and inspects STEP"
         }
       ]
     },

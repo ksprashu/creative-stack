@@ -30,11 +30,12 @@ bash scripts/bootstrap.sh
 | `/vector` | SVG art, logos, architecture diagrams, icon sets |
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
+| `/cad` | Parametric 3D parts (`build123d` + optional FreeCAD) → verified, manifold `.stl` / `.3mf` / `.step` ready for a 3D printer slicer |
 | `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
 | `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS and Chirp 3 HD |
 | `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
-Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP,
+Underneath: 100 packages across 15 groups, headless bridges to Blender, FreeCAD, Inkscape, GIMP,
 Kdenlive, Reaper and Audacity, and three opt-in MCP servers.
 
 📖 **See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for the complete reference, per-skill CLI flags, intermediate file contracts, and multi-skill production recipes.**
@@ -46,7 +47,7 @@ Kdenlive, Reaper and Audacity, and three opt-in MCP servers.
 ```bash
 bash scripts/bootstrap.sh                  # everything
 bash scripts/bootstrap.sh --headless       # no desktop apps — servers, CI, containers
-bash scripts/bootstrap.sh --skip-heavy     # no LaTeX or Blender (~10GB lighter)
+bash scripts/bootstrap.sh --skip-heavy     # no LaTeX, Blender or FreeCAD (~10GB lighter)
 bash scripts/bootstrap.sh --with-ml        # + torch/transformers for SAM 2 refinement and video tracking (~1GB)
 bash scripts/bootstrap.sh --yes            # never prompt (cloud-init, provisioning)
 bash scripts/bootstrap.sh --doctor         # verify only, change nothing

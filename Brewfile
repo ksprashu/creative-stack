@@ -207,6 +207,9 @@ cask "supercollider"
 cask "sonic-pi"
 # FOSS multi-track NLE over MLT; opens timeline.py .mlt timelines natively
 cask "kdenlive"
+# FOSS parametric B-rep CAD; headless freecadcmd converts .fcstd and
+# inspects STEP
+cask "freecad"
 
 # ---------------------------------- fonts -----------------------------------
 cask "font-roboto"

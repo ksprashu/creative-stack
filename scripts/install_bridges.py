@@ -61,7 +61,7 @@ def info(msg):
 # The stable names skills call. The candidate paths behind each one differ per
 # platform and live in hostenv.APP_BRIDGES, which doctor.py reads too.
 BRIDGE_NAMES = ["blender", "inkscape", "gimp-console", "gimp-app", "reaper",
-                "audacity", "kdenlive"]
+                "audacity", "kdenlive", "freecadcmd"]
 
 # Small, permissively licensed (MIT) General MIDI bank. ~140MB uncompressed is
 # too big to vendor, so fetch on demand and cache in-repo (gitignored).

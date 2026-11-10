@@ -39,7 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / "skills"
 HARNESSES = REPO_ROOT / "config/harnesses.json"
 
-SKILLS = ["shot", "vidkit", "deck", "vector", "raster", "render3d", "sound", "artgen"]
+SKILLS = ["shot", "vidkit", "deck", "vector", "raster", "render3d", "cad", "sound", "artgen"]
 
 # Skills whose canonical copy lives in another repo. Each is sparse-cloned at a
 # reviewed commit, the rule the MCP servers follow: a skill tells an agent what

@@ -433,6 +433,13 @@ APP_BRIDGES = {
         "linux": ["/usr/bin/kdenlive", "/usr/local/bin/kdenlive",
                   "/var/lib/flatpak/exports/bin/org.kde.kdenlive"],
     },
+    "freecadcmd": {
+        "macos": ["/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd",
+                  "/Applications/FreeCAD.app/Contents/MacOS/FreeCADCmd"],
+        "linux": ["/usr/bin/freecadcmd", "/usr/local/bin/freecadcmd",
+                  "/usr/bin/FreeCADCmd",
+                  "/var/lib/flatpak/exports/bin/org.freecad.FreeCADCmd"],
+    },
 }
 
 

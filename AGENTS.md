@@ -239,7 +239,11 @@ Do not re-discover these.
 *   **Never symlink into a macOS `.app` bundle.** The bundle finds its plug-ins from the path
     it was started by; through `~/.local/bin` GIMP 3.2 loads no batch interpreter and then
     idles forever, because 3.2 also ignores `(gimp-quit 0)` — only `--quit` ends it.
-    `install_bridges.py` writes `exec` wrappers for bundle binaries instead.
+    `install_bridges.py` writes `exec` wrappers for `.app/Contents/…` binaries instead (note
+    FreeCAD keeps `freecadcmd` under `Contents/Resources/bin/`, not `Contents/MacOS/`). And on
+    macOS `freecadcmd` resolves `~/Library/Application Support/FreeCAD` via `getpwuid` rather
+    than `$HOME`, segfaulting (exit 139) in read-only-home sandboxes unless `FREECAD_USER_HOME`
+    points at a writable temp directory.
 *   **JPEG frames are full range.** Piping Chromium JPEGs into libx264 with only
     `-pix_fmt yuv420p` keeps the `yuvj` range tag, and players that honour it show the clip
     washed out against camera footage. `motion.py` scales to `tv` range and tags BT.709.

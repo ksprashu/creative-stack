@@ -33,11 +33,13 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
-            "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts"):
+            "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts",
+            "skills/cad/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
 import autocut  # noqa: E402
+import cadlib  # noqa: E402
 import captions  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
@@ -736,6 +738,85 @@ class TimelineMltAndFossManifestTest(unittest.TestCase):
         )
         self.assertTrue(claude_pkg.get("optional"))
         self.assertIn("proprietary", claude_pkg.get("note", "").lower())
+
+
+def _box_triangles(x0, y0, z0, dx, dy, dz):
+    """12 outward-wound triangles for an axis-aligned [x0..x1]x[y0..y1]x[z0..z1] box."""
+    x1, y1, z1 = x0 + dx, y0 + dy, z0 + dz
+    p000, p100, p110, p010 = (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)
+    p001, p101, p111, p011 = (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)
+    return [
+        (p000, p010, p110), (p000, p110, p100),  # Bottom (-Z)
+        (p001, p101, p111), (p001, p111, p011),  # Top (+Z)
+        (p000, p100, p101), (p000, p101, p001),  # Front (-Y)
+        (p010, p011, p111), (p010, p111, p110),  # Back (+Y)
+        (p000, p001, p011), (p000, p011, p010),  # Left (-X)
+        (p100, p110, p111), (p100, p111, p101),  # Right (+X)
+    ]
+
+
+class CadKernelTest(unittest.TestCase):
+    def test_freecad_in_manifest_and_bridges(self):
+        manifest = json.loads((ROOT / "packages/manifest.json").read_text())
+        ids = {p["id"] for g in manifest["groups"] for p in g["packages"]}
+        self.assertIn("freecad", ids)
+        self.assertIn("freecadcmd", hostenv.APP_BRIDGES)
+
+    def test_binary_and_ascii_stl_parsing_and_closed_box_metrics(self):
+        tris = _box_triangles(-5.0, -10.0, 0.0, 10.0, 20.0, 30.0)
+        blob = cadlib.write_binary_stl_bytes(tris)
+        parsed_bin = cadlib.parse_stl(blob)
+        self.assertEqual(len(parsed_bin), 12)
+
+        ascii_lines = ["solid box"]
+        for a, b, c in tris:
+            ascii_lines.append("  facet normal 0 0 0\n    outer loop")
+            for vx, vy, vz in (a, b, c):
+                ascii_lines.append(f"      vertex {vx} {vy} {vz}")
+            ascii_lines.append("    endloop\n  endfacet")
+        ascii_lines.append("endsolid box\n")
+        parsed_ascii = cadlib.parse_stl("\n".join(ascii_lines).encode("utf-8"))
+        self.assertEqual(len(parsed_ascii), 12)
+
+        rep = cadlib.analyze_mesh(parsed_bin)
+        self.assertTrue(rep["watertight"])
+        self.assertEqual(rep["boundary_edges"], 0)
+        self.assertEqual(rep["non_manifold_edges"], 0)
+        self.assertEqual(rep["components"], 1)
+        self.assertAlmostEqual(rep["volume_cm3"], 6.0, places=3)
+        self.assertAlmostEqual(rep["bed_contact_mm2"], 200.0, places=2)
+        self.assertAlmostEqual(rep["overhang"]["area_mm2"], 0.0, places=3)
+        self.assertTrue(rep["fits_bed"])
+        self.assertIsNone(rep["unit_warning"])
+
+    def test_open_mesh_and_disconnected_bodies_detected(self):
+        open_box = _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 10.0)[:-1]
+        rep_open = cadlib.analyze_mesh(open_box)
+        self.assertFalse(rep_open["watertight"])
+        self.assertEqual(rep_open["boundary_edges"], 3)
+
+        two_parts = (
+            _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 5.0)
+            + _box_triangles(0.0, 0.0, 5.2, 4.0, 4.0, 4.0)
+        )
+        rep_two = cadlib.analyze_mesh(two_parts)
+        self.assertTrue(rep_two["watertight"])
+        self.assertEqual(rep_two["components"], 2)
+
+    def test_cantilever_bridge_flags_overhang_and_tiny_or_huge_warns(self):
+        shelf = (
+            _box_triangles(0.0, 0.0, 0.0, 10.0, 10.0, 20.0)
+            + _box_triangles(10.0, 0.0, 10.0, 15.0, 10.0, 5.0)
+        )
+        rep = cadlib.analyze_mesh(shelf, max_overhang_deg=45.0)
+        self.assertAlmostEqual(rep["overhang"]["area_mm2"], 150.0, places=2)
+
+        tiny = cadlib.analyze_mesh(_box_triangles(0.0, 0.0, 0.0, 0.05, 0.05, 0.05))
+        self.assertIsNotNone(tiny["unit_warning"])
+
+        huge = cadlib.analyze_mesh(_box_triangles(0.0, 0.0, 0.0, 300.0, 100.0, 50.0),
+                                   bed_size=(256.0, 256.0, 256.0))
+        self.assertFalse(huge["fits_bed"])
 
 
 if __name__ == "__main__":

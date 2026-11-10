@@ -82,6 +82,7 @@ REQUIRED_FILTERS = ["ass", "subtitles", "drawtext", "zoompan", "loudnorm",
 BRIDGES = {name: hostenv.find_app(name)
            for name in ("blender", "inkscape", "gimp-console")}
 
+
 GREEN, YELLOW, RED, DIM, RESET = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
 
 
@@ -449,6 +450,23 @@ def check_ml(rep):
                          "segment.py --refine sam2")
 
 
+def check_cad(rep):
+    py = REPO_ROOT / ".venv/bin/python"
+    have_b123d = False
+    if py.exists():
+        probe = "import importlib.util as u, sys; sys.exit(0 if u.find_spec('build123d') else 1)"
+        try:
+            have_b123d = subprocess.run([str(py), "-c", probe], timeout=30).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            have_b123d = False
+    rep.add("cad", "build123d", "ok" if have_b123d else "warn",
+            "OpenCASCADE B-rep -> STL / 3MF / STEP (/cad)"
+            if have_b123d else "missing in .venv — uv pip install -r requirements.txt")
+    fc = hostenv.find_app("freecadcmd")
+    rep.add("cad", "freecadcmd", "ok" if fc else "skip",
+            str(fc) if fc else "FreeCAD optional (needed only for .fcstd files)")
+
+
 def harnesses():
     """The harness table, or {} if it is unreadable.
 
@@ -561,6 +579,7 @@ def main():
     check_bridges(rep, args.quick)
     check_credentials(rep, args.quick)
     check_ml(rep)
+    check_cad(rep)
     check_mcp(rep)
     check_skills(rep)
 

@@ -16,6 +16,7 @@ A complete reference and practitioner handbook for the **Creative Stack**: eight
    - [`/vector` — Diagrams (D2, Mermaid, Graphviz, PlantUML), SVG & Tracing](#44-vector--diagrams-d2-mermaid-graphviz-plantuml-svg--tracing)
    - [`/raster` — Batch Edits, Responsive Ladders, Cutouts & SAM 2 Segmentation](#45-raster--batch-edits-responsive-ladders-cutouts--sam-2-segmentation)
    - [`/render3d` — Headless Blender Cycles/EEVEE, 3D Logos & Turntables](#46-render3d--headless-blender-cycleseevee-3d-logos--turntables)
+   - [`/cad` — Parametric 3D Parts & Slicer-Ready STL / 3MF / STEP](#46b-cad--parametric-3d-parts--slicer-ready-stl--3mf--step)
    - [`/sound` — Speech Cleanup, Procedural Music Beds, Sidechain Ducking & Reaper](#47-sound--speech-cleanup-procedural-music-beds-sidechain-ducking--reaper)
    - [`/artgen` — Generative Images, Video, TTS Narration, Music & Grounded Research](#48-artgen--generative-images-video-tts-narration-music--grounded-research)
 5. [End-to-End Multi-Skill Recipes](#5-end-to-end-multi-skill-recipes)
@@ -318,6 +319,29 @@ Drives headless Blender 5.x (`~/.local/bin/blender -b`) with three-point studio 
 # 3. Extrude a 2D SVG logo into 3D
 .venv/bin/python skills/render3d/scripts/logo3d.py \
   -i flat-logo.svg -o out/logo3d.png --engine cycles --samples 64 --gpu
+```
+
+---
+
+### 4.6b `/cad` — Parametric 3D Parts & Slicer-Ready STL / 3MF / STEP
+
+Designs dimensionally accurate mechanical parts in millimetres via OpenCASCADE (`build123d`), drops them onto `Z = 0` for the print bed, verifies watertight manifold topology and overhangs, exports `.stl` + `.3mf` + `.step`, and bridges `.fcstd`/`.iges` via optional `freecadcmd`.
+
+#### Scripts & Capabilities
+
+| Script | Purpose | Key Flags |
+| :--- | :--- | :--- |
+| `skills/cad/scripts/build.py` | Compiles `part.py` + `params.json` -> bed-aligned `.stl`, `.3mf`, `.step` + printability gate + `/render3d` preview | `-s <part.py>`, `-p <params.json>`, `--set key=val`, `-o <stem>`, `--bed 256x256x256`, `--preview <png>` |
+| `skills/cad/scripts/check.py` | Verifies manifoldness, connected solid count, mm bounds, bed contact area, and steep overhangs (`>45°`) | `-i <stl/3mf/step>`, `--bed <WxDxH>`, `--expected-parts 1`, `--max-overhang 45`, `--json <report.json>` |
+| `skills/cad/scripts/convert.py` | Converts between `.step`, `.iges`, `.fcstd`, `.stl`, and `.3mf` (`build123d` + `freecadcmd` fallback) | `-i <src>`, `-o <dst>`, `--tolerance 0.01` |
+
+#### Concrete Workflow
+
+```bash
+# Build a parametric M3 bracket, verify manifold + bed contact, and render an isometric preview
+.venv/bin/python skills/cad/scripts/build.py \
+  -s out/cad-smoke/part.py -p out/cad-smoke/params.json \
+  -o out/cad-smoke/bracket --preview out/cad-smoke/preview.png
 ```
 
 ---
