@@ -369,7 +369,7 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 | :--- | :--- | :--- | :--- |
 | `skills/artgen/scripts/image.py` | Brand-consistent image generation with automatic vision verification (`gemini-3.8-flash`) and refinement loop | `gemini-3.1-flash-image` -> `gemini-3.1-flash-lite-image` -> `gemini-3-pro-image` | `-p <prompt>`, `-o <png>`, `--ar 16:9\|1:1\|9:16`, `-r <ref.png>`, `--brand google` |
 | `skills/artgen/scripts/video.py` | Generative B-roll and image-referenced video clips via Gemini Omni Flash or Veo | `gemini-omni-1.1-flash` / `gemini-omni-1.1-flash-preview` -> `veo-3.1-generate-001` -> `veo-3.1-fast-generate-001` | `-p <prompt>`, `-i <img.png>`, `-o <mp4>`, `--ar 16:9\|9:16`, `--duration 8`, `--fast`, `--veo` |
-| `skills/artgen/scripts/voice.py` | Paragraph-chunked single- or two-speaker narration with reviewable `<out>.plan.json`, or your own voice (recorded or replicated) | `gemini-3.8-flash-tts` -> `gemini-3.1-flash-tts-preview` -> `gemini-2.5-flash-tts`; `--engine chirp` for Chirp 3 HD; `--engine live` for `gemini-3.1-flash-live-preview` / `gemini-live-2.5-flash-native-audio` | `-t <text>` or `-i <script.md>`, `-o <wav>`, `--voice Charon`, `--voices Charon,Kore`, `--style <str>`, `--engine gemini\|chirp\|live`, `--own-voice <take.wav>`, `--clone-from <me.wav> --consent <consent.wav> [--store-voice]`, `--consent-statement`, `--plan-only`, `--from-plan <json>`, `--list-voices` |
+| `skills/artgen/scripts/voice.py` | Paragraph-chunked single- or two-speaker narration with reviewable `<out>.plan.json`, or your own voice (recorded, replicated, or mixed in line by line) | `gemini-3.8-flash-tts` -> `gemini-3.1-flash-tts-preview` -> `gemini-2.5-flash-tts`; `--engine cloud` for Gemini-TTS on Cloud Text-to-Speech (`gemini-3.1-flash-tts-preview` -> `gemini-2.5-pro-tts`); `--engine chirp` for Chirp 3 HD; `--engine live` for `gemini-3.1-flash-live-preview` / `gemini-live-2.5-flash-native-audio` | `-t <text>` or `-i <script.md>`, `-o <wav>`, `--voice Charon`, `--voices Charon,Kore`, `--style <str>`, `--engine gemini\|cloud\|chirp\|live`, `--lang en-GB`, `--own-voice <take.wav>`, `--human Sam` or `--human 1,4`, `--clone-from <me.wav> --consent <consent.wav> [--store-voice]`, `--consent-statement`, `--plan-only`, `--from-plan <json>`, `--list-voices` |
 | `skills/artgen/scripts/music.py` | Generative 48kHz stereo instrumental music via Lyria with automatic multi-clip crossfading | `lyria-002` | `-p <prompt>`, `-o <wav>`, `--duration <sec>`, `--negative <str>`, `--seed <n>` |
 
 #### Concrete Workflow
@@ -392,6 +392,12 @@ Unified interface to Google's generative media models across Vertex AI (`GOOGLE_
 .venv/bin/python skills/artgen/scripts/voice.py --own-voice take.m4a -o out/narration.wav
 .venv/bin/python skills/artgen/scripts/voice.py --from-plan out/narration.plan.json \
   -o out/narration.wav --clone-from me-20s.wav --consent me-consent.wav
+
+# 4. Or mix: you read paragraphs 1 and 4, Gemini-TTS on Cloud Text-to-Speech reads the rest.
+#    The first run lists the takes to record in out/narration.takes/; the second splices them in.
+.venv/bin/python skills/artgen/scripts/voice.py -i script.md -o out/narration.wav \
+  --engine cloud --lang en-GB --human 1,4
+.venv/bin/python skills/artgen/scripts/voice.py --from-plan out/narration.plan.json -o out/narration.wav
 ```
 
 ---

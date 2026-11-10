@@ -370,6 +370,86 @@ class VoiceTest(unittest.TestCase):
         self.assertEqual((pcm, rate, heard), (b"\x01\x00\x02\x00", 24000, "Hello there"))
         self.assertTrue(sent[0]["turn_complete"])
 
+    def test_human_marks_split_names_from_paragraphs(self):
+        self.assertEqual(voice.human_marks("Sam, 1,4"), ({"Sam"}, {1, 4}))
+        self.assertEqual(voice.human_marks(None), (set(), set()))
+
+    def test_human_speaker_gets_takes_and_frees_a_voice_slot(self):
+        script = "Sam: hi\nAna: hello\nBo: hey\nSam: bye"
+        plan = voice.build_plan(script, Args(engine="gemini", voices="Kore,Puck", human="Sam"),
+                                takes="chat.takes")
+        self.assertEqual(plan["speakers"], {"Sam": voice.HUMAN, "Ana": "Kore", "Bo": "Puck"})
+        audio = [t.get("audio") for t in plan["chunks"][0]["turns"]]
+        self.assertEqual(audio, ["chat.takes/01-Sam.wav", None, None, "chat.takes/04-Sam.wav"])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            voice.build_plan(script, Args(engine="gemini", human="Zed"))
+
+    def test_human_paragraphs_in_narration(self):
+        plan = voice.build_plan("One.\n\nTwo.\n\nThree.", Args(engine="gemini", human="2"),
+                                takes="t")
+        self.assertEqual([c.get("audio") for c in plan["chunks"]], [None, "t/02-narration.wav", None])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            voice.build_plan("One.", Args(engine="gemini", human="2"))
+
+    def test_split_human_leaves_one_voice_as_narration(self):
+        plan = {"speakers": {"Sam": voice.HUMAN, "Ana": "Kore"}, "chunks": [{"turns": [
+            {"speaker": "Sam", "text": "a", "audio": "t/01.wav"},
+            {"speaker": "Ana", "text": "b"}, {"speaker": "Ana", "text": "c"},
+            {"speaker": "Sam", "text": "d", "audio": "t/04.wav"}]}]}
+        synth, layout = voice.split_human(plan)
+        self.assertNotIn("speakers", synth)
+        self.assertEqual((synth["voice"], synth["chunks"]), ("Kore", [{"text": "b c"}]))
+        self.assertEqual([p[:2] for p in layout[0]],
+                         [("human", "t/01.wav"), ("tts", 0), ("human", "t/04.wav")])
+
+    def test_split_human_keeps_two_voices_as_dialogue(self):
+        plan = {"speakers": {"Sam": voice.HUMAN, "Ana": "Kore", "Bo": "Puck"},
+                "chunks": [{"turns": [{"speaker": "Ana", "text": "a"},
+                                      {"speaker": "Bo", "text": "b"}]},
+                           {"text": "x", "audio": "t/02.wav"}]}
+        synth, layout = voice.split_human(plan)
+        self.assertEqual(synth["speakers"], {"Ana": "Kore", "Bo": "Puck"})
+        self.assertEqual(len(synth["chunks"]), 1)
+        self.assertEqual([p[0] for pieces in layout for p in pieces], ["tts", "human"])
+
+    def test_cloud_input_keeps_style_out_of_the_transcript(self):
+        from types import SimpleNamespace as NS
+        tts = NS(**{n: (lambda **kw: kw) for n in (
+            "SynthesisInput", "VoiceSelectionParams", "MultiSpeakerVoiceConfig",
+            "MultispeakerPrebuiltVoice")})
+        plan = {"lang": "en-IN", "style": "warm", "voice": "Charon",
+                "speakers": {"Ana": "Kore", "Bo": "Puck"}}
+        text, chosen = voice.cloud_input(tts, {"text": "Hello."}, plan, "m")
+        self.assertEqual(text, {"text": "Hello.", "prompt": "warm"})
+        self.assertEqual(chosen, {"language_code": "en-IN", "name": "Charon", "model_name": "m"})
+        text, chosen = voice.cloud_input(
+            tts, {"turns": [{"speaker": "Ana", "text": "hi"}, {"speaker": "Bo", "text": "yo"}]},
+            {**plan, "style": ""}, "m")
+        self.assertEqual(text, {"text": "Ana: hi\nBo: yo"})
+        aliases = chosen["multi_speaker_voice_config"]["speaker_voice_configs"]
+        self.assertEqual([(a["speaker_alias"], a["speaker_id"]) for a in aliases],
+                         [("Ana", "Kore"), ("Bo", "Puck")])
+
+    def test_assemble_splices_takes_in_script_order(self):
+        if not voice.G.hostenv.ffmpeg_bin("ffmpeg"):
+            self.skipTest("ffmpeg not installed")
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "t").mkdir()
+            with wave.open(str(Path(tmp) / "t" / "01-Sam.wav"), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(48000)
+                w.writeframes(b"\x00\x10" * 4800)
+            # Saved as .wav in the plan; the take is found whatever its name says.
+            self.assertIsNotNone(voice.take_path(tmp, "t/01-Sam.m4a"))
+            layout = [[("human", "t/01-Sam.m4a", "Sam", "a"), ("tts", 0)]]
+            [(pcm, rate)] = voice.assemble(layout, [(b"\x01\x00" * 10, 24000)], tmp)
+            gap = int(24000 * voice.TURN_GAP)
+            self.assertEqual(rate, 24000)
+            self.assertEqual(len(pcm) // 2, 2400 + gap + 10)
+            self.assertTrue(pcm.endswith(b"\x01\x00" * 10))
+
 
 class SegmentTest(unittest.TestCase):
     def test_box_px_and_valid_box(self):

@@ -1,6 +1,6 @@
 ---
 name: artgen
-description: Generate images, b-roll video, instrumental music and voiceover from prompts using Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Chirp 3 HD and Gemini Live (or the user's own recorded or replicated voice), over Vertex with an AI Studio fallback. Trigger via /artgen.
+description: Generate images, b-roll video, instrumental music and voiceover from prompts using Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Cloud Text-to-Speech (Gemini-TTS and Chirp 3 HD) and Gemini Live, with the user's own voice recorded, replicated or mixed in among them, over Vertex with an AI Studio fallback. Trigger via /artgen.
 disable-model-invocation: true
 ---
 
@@ -74,8 +74,8 @@ Neither is required to be present — whichever is configured is the one that ge
    clips as it needs and crossfades them; the prompt holds the style steady across generations.
 
 5. **Voiceover.** First ask the user whose voice it should be: a synthetic voice (Gemini
-   TTS, Chirp 3 HD or Gemini Live), their own recording, or their own voice replicated to
-   read the script. Do not pick for them; a tutorial narrated in the author's voice and one
+   TTS, Cloud Gemini-TTS, Chirp 3 HD or Gemini Live), their own recording, their own voice
+   replicated to read the script, or a mix of their voice and a synthetic one. Do not pick for them; a tutorial narrated in the author's voice and one
    in a stock voice are different products.
 
    ```bash
@@ -88,6 +88,12 @@ Neither is required to be present — whichever is configured is the one that ge
    A mispronounced word or a bad split is an edit to that file and a
    `--from-plan out/voice.plan.json` re-run. A file where every line is `Name: words` with two
    names becomes a two-voice dialogue; `--narration` reads such a file as prose. `--list-voices` prints the prebuilt voices.
+
+   `--engine cloud` sends the same voices and `--style` to the Gemini-TTS models that
+   Cloud Text-to-Speech serves (`gemini-3.1-flash-tts-preview`, then 2.5 Pro and Flash), with
+   `--lang` choosing the locale. It is the route to use when the project bills TTS through
+   Cloud Text-to-Speech, or when a non-English script needs the locale said outright.
+   Cloud TTS does not serve 3.8, so the default engine is still the newest model.
 
    `--engine chirp` swaps Gemini TTS for Cloud Text-to-Speech's Chirp 3 HD: the same voice
    names, `--lang` for 40+ locales, and dialogue with any number of speakers. It takes no
@@ -114,6 +120,19 @@ Neither is required to be present — whichever is configured is the one that ge
    the same speaker reciting the statement. By default nothing is kept: the voice key lives
    in memory for this run only. `--store-voice` asks Google to keep it and prints a
    `voice_...` id for `--voice` next time (stored voices expire after a year unused).
+
+   **Their voice in the mix.** `--human Sam` makes every line of the speaker Sam theirs in
+   a dialogue, and `--human 1,4` makes paragraphs 1 and 4 of a narration theirs. The first
+   run writes the plan, lists the lines to record and puts them in `<output>.takes/SCRIPT.txt`.
+   Once the takes are saved there under the names it printed, `--from-plan` synthesises the
+   rest and splices the recordings in, in script order. The sidecar records which parts are
+   a person. Run the result through `/sound clean.py` so the two sources sit at one level.
+
+   ```bash
+   python3 scripts/voice.py -i dialogue.txt -o out/chat.wav --voices Kore --human Sam
+   # record out/chat.takes/01-Sam.wav, 03-Sam.wav ... then
+   python3 scripts/voice.py --from-plan out/chat.plan.json -o out/chat.wav
+   ```
 
 6. **Pick a model deliberately only when you have a reason.** The chain already falls through
    a 404, a 403 and a 429 to the next model and the other backend. `--model` heads the chain

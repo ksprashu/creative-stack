@@ -38,7 +38,7 @@ bash scripts/bootstrap.sh
 | `/raster` | Batch image editing, compositing, size ladders, BiRefNet background removal, select-by-description masks and redaction for images and video |
 | `/render3d` | Product shots, animated logo stings, isometric diagram renders |
 | `/sound` | Live Loopback / Audio Hijack / PipeWire capture, voice cleanup, −14 LUFS normalisation, ducking, MIDI beds, stingers, stem-separated karaoke with key shift, and native Reaper FX vocal production |
-| `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Chirp 3 HD and Gemini Live, or narration in your own recorded or replicated voice |
+| `/artgen` | Prompt → image / video / music / voiceover via Gemini Image, Gemini Omni, Veo, Lyria, Gemini TTS, Cloud Text-to-Speech (Gemini 3.1 TTS, Chirp 3 HD) and Gemini Live, or your own voice: recorded, replicated, or mixed in with the synthetic one |
 | `anot8` | Screenshot callouts, spotlights and blur redaction from a JSON spec, with pixel bounds back for a visual check. Vendored from [ksprashu/anot8](https://github.com/ksprashu/anot8) at a pinned commit; `/shot` uses it |
 
 Underneath: 100 packages across 15 groups, headless bridges to Blender, Inkscape, GIMP, Reaper and
@@ -225,7 +225,10 @@ for generation, free software everywhere else.
     | Command | What is sent |
     | --- | --- |
     | `/artgen` (`image.py`, `video.py`, `music.py`, `voice.py`) | your prompt, plus any reference images or text you pass |
+    | `/artgen voice.py --clone-from` | your voice sample and consent recording, to the AI Studio voices API (kept only with `--store-voice`) |
+    | `/artgen voice.py --own-voice`, `--human` | nothing: your recordings stay on the machine |
     | `/raster segment.py --query` | the image, downscaled to 1536 px (one frame, for video) |
+    | `/raster segment.py --inpaint gemini` | the image with the region painted magenta, so the model never sees what was there (the default `--inpaint local` sends nothing) |
     | `/shot scan.py --ai` | the screenshot, unredacted (it goes through `segment.py`) |
     | `/vidkit analyze.py` | a 640 px proxy of the recording, deleted from the Files API afterwards |
 
