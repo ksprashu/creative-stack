@@ -176,9 +176,10 @@ make verify        # bootstrap a fresh Arch and a fresh Ubuntu in containers
 ```
 
 It runs as a non-root user with passwordless sudo — the shape of an Omarchy or Ubuntu desktop —
-and leaves the logs in `out/verify/`. CI runs the same script weekly on amd64, which covers the
-failures nobody here controls: a renamed apt package, a dropped AUR package, a new compiler that
-rejects a vendored crate.
+and leaves the logs in `out/verify/`. It runs only when someone asks for it; CI does not spend
+runner hours rebuilding clean machines. Run it before a release, or after a distro-facing change,
+to catch what nobody here controls: a renamed apt package, a dropped AUR package, a new compiler
+that rejects a vendored crate.
 
 ---
 

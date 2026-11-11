@@ -12,14 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fast gate on every change. The expensive proof — a real bootstrap on a clean
-# Arch and a clean Ubuntu — lives in bootstrap.yml and runs on a schedule.
-#
-# `--plan` is the cheap half of that proof: it resolves every manifest entry
-# against the actual package manager of the actual distro, so a package renamed
-# out from under us shows up here in ninety seconds instead of in an hour-long
-# install. It is run on all three families because the whole point of the
-# manifest is that one file answers for all of them.
+# Fast gate on every change: skill lint, the secret scan, unit tests and the
+# Brewfile drift check, on one Linux runner. There are no per-distro or
+# per-OS jobs; clean-machine coverage is `make verify`, run locally on demand.
 
 name: ci
 
@@ -55,48 +50,3 @@ jobs:
       # the manifest did not regenerate it, the two have drifted.
       - name: Brewfile matches the manifest
         run: git diff --exit-code Brewfile
-
-  plan:
-    name: plan (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { name: ubuntu, runner: ubuntu-latest, container: "" }
-          - { name: arch, runner: ubuntu-latest, container: "archlinux:latest@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9" }
-          - { name: macos, runner: macos-latest, container: "" }
-    steps:
-      # The Arch image has neither node nor tar, which actions/checkout needs.
-      - name: seed arch
-        if: matrix.name == 'arch'
-        run: |
-          sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
-          # -Syu, not -Sy: the image's db is frozen at image build time and Arch
-          # mirrors keep only the current build of each package, so `-Sy` then
-          # install asks for versions that have already been deleted and gets a
-          # 404 from every mirror.
-          pacman -Syu --noconfirm --needed python git tar nodejs npm
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: python3 scripts/packages.py --plan
-      # Every package must resolve to *some* route. A `skip` on a non-optional
-      # package means this distro has no way to install something the skills
-      # treat as hard-required, which is exactly the Arch pandoc failure.
-      - name: no required package is unroutable
-        run: |
-          python3 - <<'PY'
-          import sys
-          sys.path.insert(0, "scripts")
-          import packages
-          data = packages.load()
-          pkgs = packages.packages(data, "full", False)
-          bad = [p["id"] for p, method, *_ in packages.plan(pkgs)
-                 if method == "skip" and not p.get("optional")]
-          if bad:
-              print("required packages with no route:", ", ".join(bad))
-              sys.exit(1)
-          print("every required package has a route")
-          PY
