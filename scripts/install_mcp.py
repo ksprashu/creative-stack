@@ -169,27 +169,40 @@ def portablize(servers):
             for name, spec in servers.items()}
 
 
-def vendor_repo(name, spec):
-    """Clone at a pinned SHA. Idempotent: re-checks out the pin if it drifted."""
+def vendor_repo(name, spec, check_only=False):
+    """Resolve a pinned checkout, without mutating it in check-only mode."""
     dest = VENDOR / name
     url = f"https://github.com/{spec['repo']}.git"
     sha = spec["sha"]
 
-    if not dest.exists():
-        VENDOR.mkdir(parents=True, exist_ok=True)
-        rc, out = run(["git", "clone", "--quiet", url, str(dest)])
-        if rc != 0:
-            warn(f"{name}: clone failed — {out[:70]}")
+    if check_only:
+        if not dest.exists():
+            warn(f"{name}: not cloned — --check will not clone {spec['repo']}")
             return None
+        rc, out = run(["git", "-C", str(dest), "rev-parse", "HEAD"])
+        if rc != 0:
+            warn(f"{name}: cannot read existing checkout — {out[:70]}")
+            return None
+        actual = out.strip()
+        if not actual.startswith(sha):
+            warn(f"{name}: pin drifted (expected {sha}, found {actual})")
+            return None
+    else:
+        if not dest.exists():
+            VENDOR.mkdir(parents=True, exist_ok=True)
+            rc, out = run(["git", "clone", "--quiet", url, str(dest)])
+            if rc != 0:
+                warn(f"{name}: clone failed — {out[:70]}")
+                return None
 
-    rc, out = run(["git", "-C", str(dest), "checkout", "--quiet", sha])
-    if rc != 0:
-        # Shallow or stale clone: fetch the specific object then retry.
-        run(["git", "-C", str(dest), "fetch", "--quiet", "origin", sha])
         rc, out = run(["git", "-C", str(dest), "checkout", "--quiet", sha])
-    if rc != 0:
-        warn(f"{name}: could not pin to {sha} — {out[:70]}")
-        return None
+        if rc != 0:
+            # Shallow or stale clone: fetch the specific object then retry.
+            run(["git", "-C", str(dest), "fetch", "--quiet", "origin", sha])
+            rc, out = run(["git", "-C", str(dest), "checkout", "--quiet", sha])
+        if rc != 0:
+            warn(f"{name}: could not pin to {sha} — {out[:70]}")
+            return None
 
     entry = dest / spec["entry"]
     if not entry.exists():
@@ -200,7 +213,7 @@ def vendor_repo(name, spec):
     return dest
 
 
-def build_config():
+def build_config(check_only=False):
     print("\n▸ Vendoring MCP servers (pinned commits)")
     servers = {}
 
@@ -220,7 +233,7 @@ def build_config():
             ok(f"{name} -> npx {spec['package']} ({spec['repo']})")
 
         elif spec["kind"] == "git":
-            dest = vendor_repo(name, spec)
+            dest = vendor_repo(name, spec, check_only=check_only)
             if dest is None:
                 continue
             servers[name] = {
@@ -250,7 +263,7 @@ def read_json(path):
         return {}, True
     try:
         return json.loads(path.read_text()), True
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return {}, False
 
 
@@ -277,8 +290,10 @@ def merge(fmt, existing, servers):
 def write_harness_configs(servers, check_only):
     print("\n▸ MCP config per harness")
     if not servers:
-        return warn("no servers to declare")
+        warn("no servers to declare")
+        return False
 
+    failed = False
     for key, cfg in load_harnesses().items():
         mcp = cfg.get("mcp")
         label = cfg.get("label", key)
@@ -300,7 +315,12 @@ def write_harness_configs(servers, check_only):
 
         existing, clean = read_json(path)
         if not clean:
-            warn(f"{path} was malformed — rewriting")
+            warn(f"{path} was malformed — preserving it")
+            payload = portablize(servers) if mcp.get("portable") else servers
+            info(f"{label}: add this block manually after repairing the file:")
+            print(json.dumps(render(mcp["format"], payload), indent=2))
+            failed = True
+            continue
         payload = portablize(servers) if mcp.get("portable") else servers
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(merge(mcp["format"], existing, payload),
@@ -311,6 +331,7 @@ def write_harness_configs(servers, check_only):
 
     info("Project scope keeps these out of unrelated repos; Claude Code shows "
          "them as '⏸ Pending approval' until you approve them in a session.")
+    return failed
 
 
 def install_marketplaces(check_only):
@@ -397,12 +418,12 @@ def main():
     print(" 🔗 CREATIVE STACK — MCP servers & plugin marketplaces")
     print("=" * 66)
 
-    servers = build_config()
-    write_harness_configs(servers, args.check)
+    servers = build_config(check_only=args.check)
+    config_failed = write_harness_configs(servers, args.check)
     if not args.skip_plugins:
         install_marketplaces(args.check)
     print_next_steps(servers)
-    return 0
+    return 1 if config_failed else 0
 
 
 if __name__ == "__main__":
