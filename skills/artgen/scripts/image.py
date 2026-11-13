@@ -118,7 +118,7 @@ def generate(prompt, references, aspect, size, prefer, primary, seed):
 
 
 def verify(prompt, data, model, prefer):
-    """(passed, reason) from a vision model looking at what we just made."""
+    """Return (passed, reason), or (None, reason) if verification cannot run."""
     _, types = G.load_genai()
     question = (
         f'Analyse this image against the request: "{prompt}"\n\n'
@@ -136,7 +136,10 @@ def verify(prompt, data, model, prefer):
                       types.Part.from_bytes(data=data, mime_type="image/png")])
         return (response.text or "").strip() or None
 
-    verdict, _, _ = G.attempt([model], call, prefer=prefer, quiet=True)
+    try:
+        verdict, _, _ = G.attempt([model], call, prefer=prefer, quiet=True)
+    except SystemExit:
+        return None, "verifier unavailable"
     return verdict.startswith("YES"), verdict
 
 
@@ -219,6 +222,10 @@ def main():
                 break
             passed, reason = verify(args.prompt, data, args.verifier_model,
                                     args.backend)
+            if passed is None:
+                print(f"  {G.YELLOW}!{G.RESET} verifier unavailable; "
+                      "keeping the generated image unverified")
+                break
             if passed:
                 break
             print(f"  {G.YELLOW}!{G.RESET} attempt {attempt}/{attempts}: {reason}")
