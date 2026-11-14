@@ -40,7 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vectorlib import (GREEN, DIM, RESET, REPO_ROOT, die, run,  # noqa: E402
-                       svg_sources, svgo_optimise)
+                       svg_sources, svgo_optimise, validate_svg_resources)
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import brand  # noqa: E402
@@ -68,9 +68,13 @@ def op_optimise(src, dst, args, tokens):
 
 
 def op_export(src, dst, args, tokens):
+    try:
+        validate_svg_resources(src)
+    except ValueError as error:
+        die(str(error))
     fmt = dst.suffix.lower().lstrip(".")
     if fmt in ("png",) and hostenv.which("resvg"):
-        cmd = [hostenv.which("resvg")]
+        cmd = [hostenv.which("resvg"), "--resources-dir", str(src.resolve().parent)]
         if args.width:
             cmd += ["--width", str(args.width)]
         elif args.height:

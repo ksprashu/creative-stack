@@ -230,6 +230,113 @@ def render_graphviz(src, dst, pal, mode, scale, direction=None, text=""):
             str(src), "-o", str(dst)]
 
 
+def reject_graphviz_resources(text):
+    """Fail closed on DOT attributes that make Graphviz load local files."""
+    blocked = {"image", "imagepath", "shapefile"}
+    length = len(text)
+
+    def skip_space_and_comments(index):
+        while index < length:
+            if text[index].isspace():
+                index += 1
+            elif text.startswith("/*", index):
+                end = text.find("*/", index + 2)
+                if end < 0:
+                    return length
+                index = end + 2
+            elif text.startswith("//", index):
+                end = text.find("\n", index + 2)
+                if end < 0:
+                    return length
+                index = end + 1
+            elif (text[index] == "#"
+                  and not text[text.rfind("\n", 0, index) + 1:index].strip()):
+                end = text.find("\n", index + 1)
+                if end < 0:
+                    return length
+                index = end + 1
+            else:
+                break
+        return index
+
+    index = 0
+    while index < length:
+        index = skip_space_and_comments(index)
+        if index >= length:
+            break
+
+        if text[index] == '"':
+            start = index + 1
+            index = start
+            value = []
+            while index < length:
+                if text[index] == "\\" and index + 1 < length:
+                    value.extend((text[index], text[index + 1]))
+                    index += 2
+                elif text[index] == '"':
+                    break
+                else:
+                    value.append(text[index])
+                    index += 1
+            index = min(index + 1, length)
+            key = "".join(value).lower()
+            equals = skip_space_and_comments(index)
+            if key in blocked and equals < length and text[equals] == "=":
+                raise ValueError(
+                    "Graphviz local image resources are disabled; remove image, "
+                    "shapefile, or imagepath attributes"
+                )
+            continue
+
+        if text[index] == "<":
+            start = index
+            depth = 1
+            quote = None
+            index += 1
+            while index < length:
+                if text.startswith("<!--", index):
+                    end = text.find("-->", index + 4)
+                    index = length if end < 0 else end + 3
+                    continue
+                char = text[index]
+                if quote:
+                    if char == quote:
+                        quote = None
+                elif char in ('"', "'"):
+                    quote = char
+                elif char == "<":
+                    depth += 1
+                elif char == ">":
+                    depth -= 1
+                    if depth == 0:
+                        index += 1
+                        break
+                index += 1
+            html = text[start:index]
+            html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+            if re.search(r"<\s*IMG\b[^>]*\bSRC\s*=", html, re.I | re.S):
+                raise ValueError(
+                    "Graphviz local image resources are disabled; remove HTML IMG SRC"
+                )
+            continue
+
+        if text[index].isalpha() or text[index] == "_":
+            end = index + 1
+            while end < length and (text[end].isalnum() or text[end] == "_"):
+                end += 1
+            key = text[index:end].lower()
+            index = end
+            equals = skip_space_and_comments(index)
+            if key in blocked and equals < length and text[equals] == "=":
+                raise ValueError(
+                    "Graphviz local image resources are disabled; remove image, "
+                    "shapefile, or imagepath attributes"
+                )
+            continue
+
+        index += 1
+
+
 def render_plantuml(src, dst, pal, mode, scale, direction=None, text=""):
     fmt = dst.suffix.lstrip(".").lower()
     return [need("plantuml", "plantuml"), f"-t{fmt}",
@@ -281,6 +388,12 @@ def main():
 
     text = src.read_text(errors="replace")
     renderer = args.renderer or detect(src, text)
+
+    if renderer == "graphviz":
+        try:
+            reject_graphviz_resources(text)
+        except ValueError as error:
+            die(str(error))
 
     if dst.suffix.lower() not in SUPPORTED[renderer]:
         die(f"{renderer} cannot write {dst.suffix}. "
