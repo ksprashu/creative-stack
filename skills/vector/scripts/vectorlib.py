@@ -23,7 +23,9 @@ delete the attribute the file depends on.
 import re
 import subprocess
 import sys
-from pathlib import Path
+import xml.etree.ElementTree as ET
+from pathlib import Path, PureWindowsPath
+from urllib.parse import unquote, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -34,6 +36,26 @@ GREEN, YELLOW, DIM, RESET = "\033[32m", "\033[33m", "\033[2m", "\033[0m"
 
 VIEWBOX_RE = re.compile(r'\bviewBox\s*=\s*"([^"]+)"')
 SVG_OPEN_RE = re.compile(r"<svg\b", re.I)
+CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+CSS_ESCAPE_RE = re.compile(r"\\([0-9a-fA-F]{1,6})[\t\n\r\f ]?|\\([^\r\n\f])")
+CSS_URL_RE = re.compile(r"url\(\s*(?:(['\"])(.*?)\1|([^)]*?))\s*\)", re.I | re.S)
+SVG_STYLED_ATTRIBUTES = {
+    "clip-path", "color-profile", "cursor", "fill", "filter", "marker-end",
+    "marker-mid", "marker-start", "mask", "stroke", "style",
+}
+
+
+class _SVGTreeBuilder(ET.TreeBuilder):
+    def __init__(self):
+        super().__init__()
+        self.stylesheets = []
+
+    def doctype(self, name, pubid, system):
+        raise ValueError("SVG DTD and entity declarations are not allowed")
+
+    def pi(self, target, data):
+        if target.lower() == "xml-stylesheet":
+            self.stylesheets.append(data)
 
 
 def die(msg):
@@ -118,3 +140,156 @@ def svg_sources(inputs, recursive):
     if not found:
         die("no SVG files matched the input")
     return found
+
+
+def _css_unescape(match):
+    if match.group(1):
+        codepoint = int(match.group(1), 16)
+        return chr(codepoint) if 0 < codepoint <= 0x10ffff else "\ufffd"
+    return match.group(2)
+
+
+def _fully_unquote(reference):
+    while True:
+        decoded = unquote(reference)
+        if decoded == reference:
+            return decoded
+        reference = decoded
+
+
+def validate_svg_resources(src):
+    """Reject SVG resources that resolve outside the source directory."""
+    root = Path(src).resolve().parent
+    checked = set()
+
+    def resolve_reference(reference, owner, base_dir=None):
+        reference = reference.strip()
+        if not reference or reference.startswith("#"):
+            return None
+
+        normalized = _fully_unquote(reference)
+        parsed = urlsplit(normalized)
+        scheme = parsed.scheme.lower()
+        if scheme == "data":
+            media_type = parsed.path.split(",", 1)[0].split(";", 1)[0].lower()
+            if media_type in ("image/svg+xml", "application/xml", "text/xml"):
+                raise ValueError(
+                    f"Embedded SVG documents are not allowed ({owner.name})"
+                )
+            return None
+        if scheme in ("http", "https"):
+            return None
+        if scheme or parsed.netloc:
+            raise ValueError(
+                f"SVG external resource schemes are not allowed in {owner.name}"
+            )
+
+        path_text = parsed.path
+        windows_path = PureWindowsPath(path_text)
+        if (path_text.startswith(("/", "\\")) or windows_path.is_absolute()
+                or windows_path.drive):
+            raise ValueError(
+                f"SVG resources must stay inside the source directory ({owner.name})"
+            )
+
+        target = ((base_dir or owner.parent) / path_text.replace("\\", "/")).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as error:
+            raise ValueError(
+                f"SVG resources must stay inside the source directory ({owner.name})"
+            ) from error
+        if target.suffix.lower() == ".svgz":
+            raise ValueError(
+                f"Compressed SVG resources are not supported ({owner.name})"
+            )
+        return target
+
+    def resolve_base(reference, owner, base_dir):
+        normalized = _fully_unquote(reference.strip())
+        parsed = urlsplit(normalized)
+        windows_path = PureWindowsPath(parsed.path)
+        if (parsed.scheme or parsed.netloc or parsed.path.startswith(("/", "\\"))
+                or windows_path.is_absolute() or windows_path.drive):
+            raise ValueError(
+                f"SVG base URIs must stay inside the source directory ({owner.name})"
+            )
+        target = (base_dir / parsed.path.replace("\\", "/")).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as error:
+            raise ValueError(
+                f"SVG base URIs must stay inside the source directory ({owner.name})"
+            ) from error
+        if parsed.path.endswith(("/", "\\")) or target.is_dir():
+            return target
+        return target.parent
+
+    checked_css = set()
+
+    def validate_css_file(path):
+        path = Path(path).resolve()
+        if path not in checked_css:
+            checked_css.add(path)
+            validate_css(path.read_text(errors="replace"), path)
+
+    def validate_css(css, owner, base_dir=None):
+        css = CSS_COMMENT_RE.sub("", css or "")
+        css = CSS_ESCAPE_RE.sub(_css_unescape, css)
+        css = re.sub(r"\\(?:\r\n|[\r\n\f])", "", css)
+        if re.search(r"@import\b", css, re.I):
+            raise ValueError(
+                f"External CSS imports are not allowed in SVG resources ({owner.name})"
+            )
+        for match in CSS_URL_RE.finditer(css):
+            reference = match.group(2) if match.group(1) else match.group(3).strip()
+            target = resolve_reference(reference, owner, base_dir)
+            if target and target.suffix.lower() == ".svg" and target.is_file():
+                validate_file(target)
+            elif target and target.suffix.lower() == ".css" and target.is_file():
+                validate_css_file(target)
+
+    def validate_file(path):
+        path = Path(path).resolve()
+        if path in checked:
+            return
+        checked.add(path)
+
+        data = path.read_bytes()
+        builder = _SVGTreeBuilder()
+        try:
+            document = ET.fromstring(data, parser=ET.XMLParser(target=builder))
+        except ET.ParseError as error:
+            raise ValueError(f"Invalid SVG XML in {path.name}: {error}") from error
+
+        for instruction in builder.stylesheets:
+            href = re.search(r"\bhref\s*=\s*(['\"])(.*?)\1", instruction, re.I | re.S)
+            if href:
+                target = resolve_reference(href.group(2), path)
+                if target and target.suffix.lower() == ".svg" and target.is_file():
+                    validate_file(target)
+                elif target and target.suffix.lower() == ".css" and target.is_file():
+                    validate_css_file(target)
+
+        stack = [(document, path.parent)]
+        while stack:
+            element, base_dir = stack.pop()
+            tag = element.tag.rsplit("}", 1)[-1].lower()
+            xml_base = element.attrib.get("{http://www.w3.org/XML/1998/namespace}base")
+            if xml_base is not None:
+                base_dir = resolve_base(xml_base, path, base_dir)
+            for name, value in element.attrib.items():
+                attribute = name.rsplit("}", 1)[-1].lower()
+                if attribute in ("href", "src") and tag != "a":
+                    target = resolve_reference(value, path, base_dir)
+                    if target and target.suffix.lower() == ".svg" and target.is_file():
+                        validate_file(target)
+                    elif target and target.suffix.lower() == ".css" and target.is_file():
+                        validate_css_file(target)
+                elif attribute in SVG_STYLED_ATTRIBUTES:
+                    validate_css(value, path, base_dir)
+            if tag == "style":
+                validate_css(element.text, path, base_dir)
+            stack.extend((child, base_dir) for child in reversed(list(element)))
+
+    validate_file(Path(src).resolve())
