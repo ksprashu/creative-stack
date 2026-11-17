@@ -34,7 +34,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 for sub in ("scripts", "skills/vidkit/scripts", "skills/artgen/scripts",
             "skills/raster/scripts", "skills/sound/scripts", "skills/shot/scripts",
-            "skills/cad/scripts"):
+            "skills/cad/scripts", "skills/vector/scripts"):
     sys.path.insert(0, str(ROOT / sub))
 
 import analyze  # noqa: E402
@@ -43,6 +43,7 @@ import cadlib  # noqa: E402
 import captions  # noqa: E402
 import check  # noqa: E402
 import convert  # noqa: E402
+import diagram  # noqa: E402
 import hostenv  # noqa: E402
 import karaoke  # noqa: E402
 import record  # noqa: E402
@@ -53,6 +54,7 @@ import sync_skills  # noqa: E402
 import timeline  # noqa: E402
 import vidscan  # noqa: E402
 import voice  # noqa: E402
+import vectorlib  # noqa: E402
 
 try:
     import PIL  # noqa: F401
@@ -66,6 +68,138 @@ class Args(argparse.Namespace):
 
     def __getattr__(self, name):
         return None
+
+
+class VectorRenderSecurityTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def svg(self, relative, body):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'<svg xmlns="http://www.w3.org/2000/svg">{body}</svg>')
+        return path
+
+    def test_svg_allows_in_directory_images_data_and_fragments(self):
+        (self.root / "icons").mkdir()
+        (self.root / "icons" / "asset.png").write_bytes(b"fixture")
+        (self.root / "icons" / "assets").mkdir()
+        (self.root / "icons" / "assets" / "nested.png").write_bytes(b"fixture")
+        source = self.svg(
+            "icons/safe.svg",
+            '<image href="asset.png"/><image href="data:image/png;base64,AA=="/>'
+            '<rect fill="url(#paint)"/><defs><linearGradient id="paint"/></defs>'
+            '<g xml:base="assets/"><image href="nested.png"/>'
+            '<rect style="fill:url(../asset.png)"/></g>',
+        )
+        vectorlib.validate_svg_resources(source)
+
+    def test_svg_blocks_absolute_parent_file_and_encoded_paths(self):
+        deeply_encoded_parent = "%2e%2e/private.png"
+        for _ in range(10):
+            deeply_encoded_parent = deeply_encoded_parent.replace("%", "%25")
+        cases = (
+            '<image href="/private.png"/>',
+            '<image href="../private.png"/>',
+            '<image href="%2e%2e/private.png"/>',
+            f'<image href="{deeply_encoded_parent}"/>',
+            '<image href="f%69le:///private.png"/>',
+            '<image href="file:///private.png"/>',
+            '<g xml:base="../"><image href="private.png"/></g>',
+            '<g xml:base="assets/"><rect style="fill:url(../../private.png)"/></g>',
+            '<rect style="fill:url(../private.png)"/>',
+            '<rect style="fill:url(\\2e\\2e/private.png)"/>',
+        )
+        for body in cases:
+            with self.subTest(body=body):
+                source = self.svg("icons/evil.svg", body)
+                with self.assertRaises(ValueError):
+                    vectorlib.validate_svg_resources(source)
+
+    def test_svg_checks_nested_svg_and_stylesheet_references(self):
+        self.svg("icons/nested.svg", '<image href="../../private.png"/>')
+        source = self.svg("icons/entry.svg", '<image href="nested.svg"/>')
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        source = self.svg("icons/stylesheet.svg", "<rect/>")
+        source.write_text(
+            '<?xml-stylesheet type="text/css" href="../../private.css"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        source.write_bytes(
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<?xml-stylesheet type="text/css" href="../../private.css"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
+            .encode("utf-16")
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        (self.root / "icons" / "theme.css").write_text(
+            'rect { fill: url("../../private.png"); }'
+        )
+        source = self.svg(
+            "icons/linked-css.svg",
+            '<link xmlns="http://www.w3.org/2000/svg" rel="stylesheet" '
+            'href="theme.css"/>',
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+    def test_svg_rejects_dtd_and_external_css_imports(self):
+        source = self.svg("icons/dtd.svg", "<rect/>")
+        source.write_text(
+            '<!DOCTYPE svg [<!ENTITY secret SYSTEM "file:///private.txt">]>'
+            '<svg xmlns="http://www.w3.org/2000/svg"><text>&secret;</text></svg>'
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        source.write_bytes(
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE svg [<!ENTITY secret SYSTEM "file:///private.txt">]>'
+            '<svg xmlns="http://www.w3.org/2000/svg"><text>&secret;</text></svg>'
+            .encode("utf-16")
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        source = self.svg("icons/import.svg", '<style>@import "theme.css";</style>')
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+        source = self.svg(
+            "icons/embedded.svg",
+            '<image href="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"/>',
+        )
+        with self.assertRaises(ValueError):
+            vectorlib.validate_svg_resources(source)
+
+    def test_graphviz_rejects_resource_attributes_and_html_images(self):
+        for text in (
+            'digraph { a [image="../secret.png"] }',
+            'digraph { graph [imagepath="C:/private"] }',
+            'digraph { a [shapefile=private] }',
+            'digraph { a [label=<<TABLE><TR><TD><IMG SRC="../secret.png"/></TD></TR></TABLE>>] }',
+        ):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError):
+                    diagram.reject_graphviz_resources(text)
+
+    def test_graphviz_ignores_comments_and_quoted_label_text(self):
+        diagram.reject_graphviz_resources(
+            '// image="../comment.png"\n'
+            'digraph { a [label="image=not-an-attribute; <IMG SRC=label>"] '
+            'b [label=<<TABLE><TR><TD>safe</TD></TR></TABLE>>] }'
+        )
 
 
 class AutocutTest(unittest.TestCase):
