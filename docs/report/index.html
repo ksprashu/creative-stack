@@ -1450,17 +1450,17 @@ file "bed.wav" offset 0.0
     <section id="bench-vidkit" class="bench-section heavy-section-deferred" aria-labelledby="title-vidkit">
       <div class="section-header">
         <div class="section-title-group">
-          <h2 id="title-vidkit"><span class="skill-tag">/vidkit</span> Automated Silence Jump-Cuts, Karaoke Captions &amp; DaVinci Resolve XML</h2>
+          <h2 id="title-vidkit"><span class="skill-tag">/vidkit</span> Automated Silence Jump-Cuts, Karaoke Captions &amp; Kdenlive / MLT Timeline</h2>
           <p class="section-desc">
             Scans a `14.28s` screen recording for dead air, writes an editable `cut.json` decision list that trims
             <strong>45% of the runtime</strong> (`7.84s` kept across 3 segments), burns word-by-word ASS `\kf` karaoke
-            captions, and exports a frame-accurate FCP7 XML timeline (`edit.xml`) for DaVinci Resolve.
+            captions, and exports a frame-accurate Kdenlive / MLT timeline (`edit.mlt`) plus FCP7 XML (`edit.xml`) for external NLEs.
           </p>
         </div>
         <div class="engine-badges">
           <span class="engine-badge">autocut.py</span>
           <span class="engine-badge">captions.py</span>
-          <span class="engine-badge">timeline.py (OpenTimelineIO)</span>
+          <span class="engine-badge">timeline.py (MLT / OpenTimelineIO)</span>
           <span class="engine-badge">motion.py</span>
         </div>
       </div>
@@ -1473,8 +1473,8 @@ file "bed.wav" offset 0.0
         </div>
         <div class="pipeline-stage">
           <span class="stage-role">2. REVIEWABLE INTERMEDIATES</span>
-          <span class="stage-artifact">cut.json, demo.srt, edit.xml</span>
-          <span class="stage-note">Editable segment keep/drop list + FCP7 XML for DaVinci Resolve</span>
+          <span class="stage-artifact">cut.json, demo.srt, edit.mlt, edit.xml</span>
+          <span class="stage-note">Editable segment keep/drop list + Kdenlive MLT &amp; FCP7 XML timelines</span>
         </div>
         <div class="pipeline-stage">
           <span class="stage-role">3. TRANSFORMED VIDEOS</span>
@@ -1486,7 +1486,10 @@ file "bed.wav" offset 0.0
       <div class="optical-bay">
         <div class="bay-toolbar">
           <span class="bay-label">OPTICAL BAY 05 — Side-by-Side Video Comparison: Uncut Recording (14.28s) vs. Silence-Cut (7.84s) vs. Karaoke Captioned</span>
-          <a href="assets/edit.xml" download class="status-pill accent" style="text-decoration:none;">⬇ Download DaVinci Resolve FCP7 XML (edit.xml)</a>
+          <div>
+            <a href="assets/edit.mlt" download class="status-pill accent" style="text-decoration:none;">⬇ Download Kdenlive / MLT Timeline (edit.mlt)</a>
+            <a href="assets/edit.xml" download class="status-pill ok" style="text-decoration:none;">⬇ Download FCP7 XML (edit.xml)</a>
+          </div>
         </div>
 
         <div class="grid-3">

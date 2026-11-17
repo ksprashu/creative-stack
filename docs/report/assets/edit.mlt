@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mlt LC_NUMERIC="C" version="7.0.0" title="rec" producer="main_bin">
+  <profile description="automatic" width="1280" height="720" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="16" display_aspect_den="9" frame_rate_num="30" frame_rate_den="1" colorspace="709" />
+  <producer id="producer0" in="0" out="427">
+    <property name="resource">fixtures/rec.mp4</property>
+  </producer>
+  <playlist id="main_bin">
+    <property name="xml_retain">1</property>
+    <entry producer="producer0" in="0" out="427" />
+  </playlist>
+  <playlist id="playlist0">
+    <entry producer="producer0" in="0" out="65" />
+    <entry producer="producer0" in="134" out="217" />
+    <entry producer="producer0" in="301" out="385" />
+  </playlist>
+  <tractor id="tractor0" title="rec" in="0" out="234">
+    <property name="kdenlive:projectTractor">1</property>
+    <property name="kdenlive:docproperties.guides">[{"pos": 66, "comment": "cut 2.3s", "type": 0}, {"pos": 150, "comment": "cut 2.8s", "type": 0}]</property>
+    <track producer="playlist0" />
+  </tractor>
+</mlt>

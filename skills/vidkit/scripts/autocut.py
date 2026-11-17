@@ -481,8 +481,8 @@ def main():
         print(f"  Next: burn captions →  python3 captions.py -i {args.render} "
               f"-s {args.srt_out or 'out/cut.srt'} -o out/captioned.mp4")
     else:
-        print(f"  Next: review in Resolve →  python3 timeline.py -s {args.output} "
-              "-o out/edit.xml")
+        print(f"  Next: review in Kdenlive / MLT →  python3 timeline.py -s {args.output} "
+              "-o out/edit.mlt")
     return 0
 
 
