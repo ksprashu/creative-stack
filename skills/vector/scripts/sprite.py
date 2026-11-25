@@ -48,8 +48,23 @@ SVG_BLOCK_RE = re.compile(r"<svg\b[^>]*>(.*)</svg\s*>", re.S | re.I)
 XML_DECL_RE = re.compile(r"<\?xml.*?\?>|<!DOCTYPE[^>]*>|<!--.*?-->", re.S)
 # Colour literals that are a real paint, as opposed to "none" or a gradient
 # reference — those have to survive `--currentcolor` untouched.
-PAINT_RE = re.compile(r'\b(fill|stroke)\s*=\s*"(#[0-9a-fA-F]{3,8}|'
-                      r'rgb\([^"]*\)|[a-z]+)"')
+PAINT_VALUE = r'#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-z]+'
+PAINT_RE = re.compile(
+    r"(?<![\w:-])(fill|stroke)\s*=\s*([\"'])(" + PAINT_VALUE + r")\2", re.I)
+ROOT_PAINT_RE = re.compile(r"(?<![\w:-])(fill|stroke)\s*=\s*([\"'])(.*?)\2", re.I)
+STYLE_ATTR_RE = re.compile(r"((?<![\w:-])style\s*=\s*)([\"'])(.*?)\2", re.I | re.S)
+STYLE_BLOCK_RE = re.compile(r'(<style\b[^>]*>)(.*?)(</style\s*>)', re.I | re.S)
+CSS_PAINT_RE = re.compile(
+    r'(^|[;{])(\s*(?:fill|stroke)\s*:\s*)(' + PAINT_VALUE +
+    r')(?=\s*(?:!important\s*)?(?:[;}]|$))', re.I)
+KEEP_PAINT = {"none", "transparent", "inherit", "initial", "unset", "revert", "currentcolor"}
+
+
+def recolour_style(style):
+    return CSS_PAINT_RE.sub(
+        lambda m: m.group(0) if m.group(3).lower() in KEEP_PAINT
+        else m.group(1) + m.group(2) + "currentColor", style)
+
 
 # id/class collide across files once everything lives in one document, so they
 # get namespaced per symbol.
@@ -85,6 +100,22 @@ def symbol_for(path, prefix, currentcolor, stem=None):
 
     name = f"{prefix}{slug(stem or path.stem)}"
 
+    # Preserve inherited root paint when replacing <svg> with <symbol>.
+    paint = ''
+    if currentcolor:
+        root_paints = list(ROOT_PAINT_RE.finditer(header))
+        if not any(m.group(1).lower() == "fill" for m in root_paints):
+            # svgo removes default black fills; these paths need the theme too.
+            paint = ' fill="currentColor"'
+        paint += ''.join(' ' + m.group(0) for m in root_paints)
+        root_style = STYLE_ATTR_RE.search(header)
+        if root_style:
+            paint += (' ' + root_style.group(1) + root_style.group(2) +
+                      recolour_style(root_style.group(3)) + root_style.group(2))
+        paint = PAINT_RE.sub(
+            lambda m: m.group(0) if m.group(3).lower() in KEEP_PAINT
+            else f'{m.group(1)}={m.group(2)}currentColor{m.group(2)}', paint)
+
     # Namespace every internal id so two icons that both define "a" — which
     # svgo produces constantly — do not overwrite each other in the sprite.
     local = set(ID_DEF_RE.findall(inner))
@@ -92,15 +123,19 @@ def symbol_for(path, prefix, currentcolor, stem=None):
         scoped = f"{name}-{ident}"
         inner = inner.replace(f'id="{ident}"', f'id="{scoped}"')
         inner = inner.replace(f"url(#{ident})", f"url(#{scoped})")
+        paint = paint.replace(f"url(#{ident})", f"url(#{scoped})")
         inner = inner.replace(f'href="#{ident}"', f'href="#{scoped}"')
 
     if currentcolor:
         inner = PAINT_RE.sub(
-            lambda m: m.group(0) if m.group(2) in ("none", "transparent")
-            or m.group(2).startswith("url")
-            else f'{m.group(1)}="currentColor"', inner)
+            lambda m: m.group(0) if m.group(3).lower() in KEEP_PAINT
+            else f'{m.group(1)}={m.group(2)}currentColor{m.group(2)}', inner)
+        inner = STYLE_ATTR_RE.sub(
+            lambda m: m.group(1) + m.group(2) + recolour_style(m.group(3)) + m.group(2), inner)
+        inner = STYLE_BLOCK_RE.sub(
+            lambda m: m.group(1) + recolour_style(m.group(2)) + m.group(3), inner)
 
-    return (f'  <symbol id="{name}" viewBox="{viewbox}">\n'
+    return (f'  <symbol id="{name}" viewBox="{viewbox}"{paint}>\n'
             f'    {inner}\n  </symbol>'), None
 
 
@@ -220,7 +255,7 @@ def main():
           f'    <svg class="icon"><use href="#{names[0]}"/></svg>')
     if args.currentcolor:
         print(f"{DIM}    .icon {{ width: 24px; height: 24px; "
-              f"color: var(--text); }}{RESET}")
+              f"color: var(--text); fill: currentColor; }}{RESET}")
     return 0
 
 
